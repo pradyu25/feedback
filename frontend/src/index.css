@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #0a192f;
+  color: #ccd6f6;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Custom scrollbar if desired */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a192f;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #8892b0;
+  border-radius: 5px;
+}
+
+@keyframes float {
+
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+
+  50% {
+    transform: translateY(-20px) rotate(5deg);
+  }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes morph {
+
+  0%,
+  100% {
+    border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+  }
+
+  50% {
+    border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%;
+  }
+}
+
+.animate-morph {
+  animation: morph 8s ease-in-out infinite;
+}
+
+@keyframes text-glow {
+
+  0%,
+  100% {
+    text-shadow: 0 0 10px rgba(139, 92, 246, 0.5), 0 0 20px rgba(139, 92, 246, 0.3);
+  }
+
+  50% {
+    text-shadow: 0 0 20px rgba(139, 92, 246, 0.8), 0 0 40px rgba(139, 92, 246, 0.5);
+  }
+}
+
+.animate-text-glow {
+  animation: text-glow 2s ease-in-out infinite;
+}
+
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 20s linear infinite;
+}
+
+@keyframes glow {
+
+  0%,
+  100% {
+    opacity: 0.3;
+    filter: blur(40px);
+  }
+
+  50% {
+    opacity: 0.6;
+    filter: blur(60px);
+  }
+}
+
+.animate-glow {
+  animation: glow 4s ease-in-out infinite;
+}
