@@ -1,12 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import api from '../utils/axios';
+import { useAuth } from '../context/AuthContext';
+import { FaSignOutAlt } from 'react-icons/fa';
 
 const FeedbackForm = () => {
     const { subjectId } = useParams();
     const location = useLocation();
     const navigate = useNavigate();
+    const { logout } = useAuth();
+
     const subjectName = location.state?.subjectName || 'Course';
+    const facultyName = location.state?.facultyName || 'Faculty';
+
+    const handleLogout = () => {
+        logout();
+        navigate('/');
+    };
 
     // Hardcoded questions fallback or fetch from API
     // Actually, API /api/student/questions/:subjectId returns { questions: [], type: '' }
@@ -24,10 +34,11 @@ const FeedbackForm = () => {
                     setQuestions(data.questions);
                     // Initialize responses with existing ones or empty
                     const initial = {};
-                    data.questions.forEach((_, idx) => {
-                        const existing = data.existingResponses?.find(r => r.questionIndex === idx);
-                        initial[idx] = existing ? existing.rating : 0;
-                    });
+                    if (data.existingResponses) {
+                        data.existingResponses.forEach(r => {
+                            initial[r.questionIndex] = r.rating;
+                        });
+                    }
                     setResponses(initial);
                 }
             } catch (err) {
@@ -71,10 +82,13 @@ const FeedbackForm = () => {
             });
 
             const subjectList = location.state?.subjectList || [];
+            // Update the local list status to find the next one
             const updatedList = subjectList.map(s =>
                 s.subjectId === subjectId ? { ...s, status: 'done', canResubmit: false } : s
             );
-            const nextSubject = updatedList.find(s => s.status !== 'done' || s.canResubmit);
+
+            // Find next pending subject
+            const nextSubject = updatedList.find(s => s.status !== 'done');
 
             if (nextSubject) {
                 navigate(`/student/feedback/${nextSubject.subjectId}`, {
@@ -86,7 +100,7 @@ const FeedbackForm = () => {
                     replace: true
                 });
             } else {
-                alert('All feedbacks submitted successfully!');
+                // All done
                 navigate('/student/dashboard');
             }
         } catch (err) {
@@ -97,55 +111,97 @@ const FeedbackForm = () => {
         }
     };
 
-    if (loading) return <div className="text-white text-center p-8">Loading feedback form...</div>;
-    if (error) return <div className="text-red-500 text-center p-8">{error}</div>;
+    if (loading) return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-black"></div>
+        </div>
+    );
+
+    if (error) return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-8">
+            <div className="text-red-500 font-bold bg-white p-6 rounded-xl shadow-lg border border-red-100">{error}</div>
+        </div>
+    );
+
+    const progress = (Object.keys(responses).length / questions.length) * 100;
 
     return (
-        <div className="container mx-auto max-w-4xl p-4">
-            <h1 className="text-3xl font-bold text-aiml-accent mb-2">Feedback: {subjectName}</h1>
-            <p className="text-aiml-silver mb-8">Please rate the following aspects honestly.</p>
-
-            <div className="space-y-6">
-                {questions.map((q, idx) => (
-                    <div key={idx} className="bg-aiml-navy-light p-6 rounded shadow-md border-l-4 border-aiml-accent">
-                        <p className="text-lg text-white mb-4">{idx + 1}. {q}</p>
-                        <div className="flex space-x-4">
-                            {[1, 2, 3, 4, 5].map((rating) => (
-                                <button
-                                    key={rating}
-                                    onClick={() => handleRatingChange(idx, rating)}
-                                    className={`w-10 h-10 rounded-full font-bold focus:outline-none transition-colors duration-200 ${responses[idx] === rating
-                                        ? 'bg-aiml-accent text-aiml-navy border-2 border-white'
-                                        : 'bg-aiml-navy text-aiml-silver border border-aiml-silver hover:border-aiml-accent'
-                                        }`}
-                                >
-                                    {rating}
-                                </button>
-                            ))}
+        <div className="min-h-screen bg-gray-50 font-['Outfit'] py-12 px-4 sm:px-6 lg:px-8">
+            <div className="max-w-4xl mx-auto">
+                {/* Header Card */}
+                <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 p-8 mb-8 border border-gray-100 relative overflow-hidden">
+                    <button
+                        onClick={handleLogout}
+                        className="absolute top-4 right-4 p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 transition-colors z-20"
+                        title="Logout"
+                    >
+                        <FaSignOutAlt />
+                    </button>
+                    <div className="absolute top-0 left-0 w-full h-2 bg-black"></div>
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mt-4">
+                        <div>
+                            <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Feedback Form</h2>
+                            <h1 className="text-3xl md:text-4xl font-black text-gray-900 mb-2">{subjectName}</h1>
+                            <p className="text-xl text-gray-500 font-medium">Faculty: <span className="text-black">{facultyName}</span></p>
                         </div>
-                        <div className="flex justify-between text-xs text-aiml-silver mt-2 px-1">
-                            <span>Poor</span>
-                            <span>Excellent</span>
+                        <div className="text-right">
+                            <div className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-1">Progress</div>
+                            <div className="text-3xl font-black text-black">{Math.round(progress)}%</div>
                         </div>
                     </div>
-                ))}
-            </div>
+                </div>
 
-            <div className="mt-8 flex justify-end space-x-4">
-                <button
-                    onClick={() => navigate('/student/dashboard')}
-                    className="px-6 py-2 rounded border border-aiml-silver text-aiml-silver hover:text-white"
-                >
-                    Cancel
-                </button>
-                <button
-                    onClick={handleSubmit}
-                    disabled={!isComplete() || submitting}
-                    className={`px-8 py-2 rounded font-bold text-aiml-navy bg-aiml-accent hover:bg-opacity-90 transition duration-200 ${(!isComplete() || submitting) ? 'opacity-50 cursor-not-allowed' : ''
-                        }`}
-                >
-                    {submitting ? 'Submitting...' : 'Submit Feedback'}
-                </button>
+                {/* Questions */}
+                <div className="space-y-6">
+                    {questions.map((q, idx) => (
+                        <div key={idx} className={`bg-white p-8 rounded-3xl shadow-sm border transition-all duration-300 ${responses[idx] ? 'border-gray-200 shadow-md' : 'border-gray-100 hover:border-gray-300 hover:shadow-lg'
+                            }`}>
+                            <div className="flex flex-col gap-6">
+                                <div className="flex items-start gap-4">
+                                    <span className="flex-shrink-0 w-8 h-8 rounded-full bg-black text-white flex items-center justify-center font-bold text-sm">
+                                        {idx + 1}
+                                    </span>
+                                    <p className="text-lg font-bold text-gray-800 pt-1 leading-relaxed">{q}</p>
+                                </div>
+
+                                <div className="ml-12 grid grid-cols-5 gap-4 max-w-lg">
+                                    {[1, 2, 3, 4, 5].map((rating) => (
+                                        <button
+                                            key={rating}
+                                            onClick={() => handleRatingChange(idx, rating)}
+                                            className={`group relative aspect-square rounded-2xl font-black text-lg transition-all duration-200 flex flex-col items-center justify-center gap-1 ${responses[idx] === rating
+                                                ? 'bg-black text-white shadow-xl shadow-black/20 scale-110'
+                                                : 'bg-gray-50 text-gray-400 hover:bg-gray-100 hover:text-gray-900'
+                                                }`}
+                                        >
+                                            {rating}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Actions */}
+                <div className="mt-12 flex items-center justify-between bg-white p-6 rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100">
+                    <button
+                        onClick={() => navigate('/student/dashboard')}
+                        className="px-8 py-4 rounded-xl font-bold text-gray-500 hover:text-black hover:bg-gray-50 transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleSubmit}
+                        disabled={!isComplete() || submitting}
+                        className={`px-10 py-4 rounded-xl font-black text-white uppercase tracking-widest transition-all transform ${(!isComplete() || submitting)
+                            ? 'bg-gray-300 cursor-not-allowed'
+                            : 'bg-black hover:bg-gray-900 hover:scale-105 shadow-xl shadow-black/20'
+                            }`}
+                    >
+                        {submitting ? 'Sending...' : 'Submit Feedback'}
+                    </button>
+                </div>
             </div>
         </div>
     );

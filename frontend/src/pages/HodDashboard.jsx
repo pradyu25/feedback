@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/axios';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement } from 'chart.js';
-import { Bar, Pie } from 'react-chartjs-2';
-import { FaChalkboardTeacher, FaBook, FaLayerGroup, FaChartPie, FaDownload, FaFilter } from 'react-icons/fa';
-
+import { Bar } from 'react-chartjs-2';
+import { FaChalkboardTeacher, FaBook, FaLayerGroup, FaChartPie, FaFilter, FaChevronDown, FaChevronUp, FaFilePdf, FaFileExcel, FaFileWord, FaSignOutAlt } from 'react-icons/fa';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement);
 
@@ -15,11 +16,11 @@ const chartOptions = {
         y: {
             beginAtZero: true,
             max: 100,
-            ticks: { color: 'rgba(255,255,255,0.4)', font: { family: 'Outfit', weight: 'bold' } },
-            grid: { color: 'rgba(255,255,255,0.05)' },
+            ticks: { color: '#94a3b8', font: { family: 'Outfit', weight: 'bold' } },
+            grid: { color: '#e2e8f0' },
         },
         x: {
-            ticks: { color: 'rgba(255,255,255,0.4)', font: { family: 'Outfit', weight: 'bold' } },
+            ticks: { color: '#94a3b8', font: { family: 'Outfit', weight: 'bold' } },
             grid: { display: false },
         },
     },
@@ -32,6 +33,15 @@ const HodDashboard = () => {
     const [loading, setLoading] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [activeView, setActiveView] = useState('overview'); // overview, faculty, subject
+    const [expandedFaculty, setExpandedFaculty] = useState(null);
+
+    const { logout } = useAuth();
+    const navigate = useNavigate();
+
+    const handleLogout = () => {
+        logout();
+        navigate('/');
+    };
 
     useEffect(() => {
         const fetchAnalytics = async () => {
@@ -70,12 +80,16 @@ const HodDashboard = () => {
         }
     };
 
+    const toggleFacultyExpand = (id) => {
+        setExpandedFaculty(expandedFaculty === id ? null : id);
+    };
+
     if (loading && !analytics) {
         return (
-            <div className="min-h-screen bg-[#020617] flex items-center justify-center">
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
                 <div className="text-center">
-                    <div className="inline-block animate-spin-slow rounded-full h-16 w-16 border-t-2 border-purple-500"></div>
-                    <p className="text-white mt-4 text-lg animate-pulse font-['Outfit']">Decrypting Analytics...</p>
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-black"></div>
+                    <p className="text-gray-500 mt-4 text-sm font-bold tracking-widest uppercase">Loading Analytics...</p>
                 </div>
             </div>
         );
@@ -87,70 +101,150 @@ const HodDashboard = () => {
         { id: 'subject', name: 'Subject Wise', icon: <FaBook /> },
     ];
 
-    const getChartData = (data, label, color) => ({
-        labels: data.map(d => d.name),
-        datasets: [{
-            label: label,
-            data: data.map(d => d.average),
-            backgroundColor: color,
-            borderRadius: 8,
-            borderWidth: 0,
-        }],
-    });
-
     const renderView = () => {
         if (!analytics) return null;
 
         switch (activeView) {
             case 'faculty':
-                return <ReportView title="Faculty Performance" data={analytics.facultyReport || []} color="rgba(139, 92, 246, 0.6)" />;
+                return (
+                    <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 overflow-hidden">
+                        <div className="p-8 border-b border-gray-100">
+                            <h2 className="text-2xl font-black text-gray-900">Faculty Performance</h2>
+                            <p className="text-gray-500">Detailed breakdown of faculty scores. Click rows for question-wise analysis.</p>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-gray-50 text-gray-400 text-[10px] uppercase font-black tracking-widest">
+                                    <tr>
+                                        <th className="px-8 py-4">Name</th>
+                                        <th className="px-8 py-4 text-center">Avg Score</th>
+                                        <th className="px-8 py-4 text-center">Status</th>
+                                        <th className="px-8 py-4 text-right">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {(analytics.facultyReport || []).map((f, idx) => (
+                                        <>
+                                            <tr
+                                                key={idx}
+                                                onClick={() => toggleFacultyExpand(idx)}
+                                                className="hover:bg-gray-50 cursor-pointer transition-colors group"
+                                            >
+                                                <td className="px-8 py-6 font-bold text-gray-900">{f.name}</td>
+                                                <td className="px-8 py-6 text-center">
+                                                    <span className={`inline-block px-3 py-1 rounded-lg text-sm font-bold ${f.average >= 90 ? 'bg-green-100 text-green-700' :
+                                                        f.average >= 75 ? 'bg-blue-100 text-blue-700' :
+                                                            'bg-orange-100 text-orange-700'
+                                                        }`}>
+                                                        {f.average}%
+                                                    </span>
+                                                </td>
+                                                <td className="px-8 py-6 text-center">
+                                                    {f.average >= 90 ? 'Excellent' : f.average >= 75 ? 'Good' : 'Needs Improvement'}
+                                                </td>
+                                                <td className="px-8 py-6 text-right text-gray-400">
+                                                    {expandedFaculty === idx ? <FaChevronUp /> : <FaChevronDown />}
+                                                </td>
+                                            </tr>
+                                            {expandedFaculty === idx && f.questions && (
+                                                <tr className="bg-gray-50/50">
+                                                    <td colSpan="4" className="px-8 py-6">
+                                                        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+                                                            <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Question Wise Breakdown</h4>
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                {f.questions.map((q, qIdx) => (
+                                                                    <div key={qIdx} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                                                        <span className="text-sm font-medium text-gray-600">Q{q.questionIndex + 1}</span>
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                                                                <div
+                                                                                    className="h-full bg-black rounded-full"
+                                                                                    style={{ width: `${q.average}%` }}
+                                                                                ></div>
+                                                                            </div>
+                                                                            <span className="text-sm font-bold text-gray-900">{q.average}%</span>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                                {(!f.questions || f.questions.length === 0) && (
+                                                                    <p className="text-sm text-gray-400 italic">No detailed question data available.</p>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                );
+
             case 'subject':
-                return <ReportView title="Subject Performance" data={analytics.subjectReport || []} color="rgba(236, 72, 153, 0.6)" />;
+                return (
+                    <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 p-8">
+                        <h2 className="text-2xl font-black text-gray-900 mb-8">Subject Performance</h2>
+                        <div className="h-[400px]">
+                            <Bar
+                                data={{
+                                    labels: (analytics.subjectReport || []).map(d => d.name),
+                                    datasets: [{
+                                        label: 'Average Score (%)',
+                                        data: (analytics.subjectReport || []).map(d => d.average),
+                                        backgroundColor: '#0f172a',
+                                        borderRadius: 8,
+                                    }]
+                                }}
+                                options={chartOptions}
+                            />
+                        </div>
+                    </div>
+                );
 
             default:
                 return (
                     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                         {/* Stats Summary */}
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                            <StatCard title="Total Students" value={analytics.totalStudents} gradient="from-blue-500 to-cyan-500" />
-                            <StatCard title="Submitted" value={analytics.completedCount} gradient="from-green-500 to-emerald-500" />
-                            <StatCard title="Participation" value={analytics.totalStudents > 0 ? `${((analytics.completedCount / analytics.totalStudents) * 100).toFixed(1)}%` : '0.0%'} gradient="from-purple-500 to-pink-500" />
-                            <StatCard title="Not Submitted" value={analytics.notSubmittedCount} gradient="from-red-500 to-orange-500" />
+                            <StatCard title="Total Students" value={analytics.totalStudents} />
+                            <StatCard title="Submitted" value={analytics.completedCount} />
+                            <StatCard title="Participation" value={analytics.totalStudents > 0 ? `${((analytics.completedCount / analytics.totalStudents) * 100).toFixed(1)}%` : '0.0%'} />
+                            <StatCard title="Pending" value={analytics.notSubmittedCount} />
                         </div>
 
-                        {/* Top Performers */}
+                        {/* Charts Area */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                            <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-6 rounded-3xl">
-                                <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                                    <span className="text-purple-400"><FaChalkboardTeacher /></span> Faculty Leaderboard
-                                </h3>
+                            <div className="bg-white border border-gray-100 p-8 rounded-3xl shadow-xl shadow-gray-200/50">
+                                <h3 className="text-lg font-bold text-gray-900 mb-6">Faculty Leaderboard</h3>
                                 <div className="space-y-4">
                                     {(analytics.facultyReport || []).slice(0, 5).sort((a, b) => b.average - a.average).map((f, i) => (
-                                        <div key={i} className="flex items-center justify-between p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors">
-                                            <span className="text-white font-medium">{f.name}</span>
-                                            <span className="text-purple-400 font-bold">{f.average}%</span>
+                                        <div key={i} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                            <div className="flex items-center gap-3">
+                                                <span className="w-6 h-6 rounded-full bg-black text-white text-xs flex items-center justify-center font-bold">{i + 1}</span>
+                                                <span className="text-gray-700 font-bold">{f.name}</span>
+                                            </div>
+                                            <span className="text-black font-black">{f.average}%</span>
                                         </div>
                                     ))}
-                                    {(!analytics.facultyReport || analytics.facultyReport.length === 0) && (
-                                        <p className="text-gray-500 text-center py-10">No faculty data yet</p>
-                                    )}
                                 </div>
                             </div>
-                            <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-6 rounded-3xl">
-                                <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                                    <span className="text-pink-400"><FaBook /></span> Subject Insights
-                                </h3>
+                            <div className="bg-white border border-gray-100 p-8 rounded-3xl shadow-xl shadow-gray-200/50">
+                                <h3 className="text-lg font-bold text-gray-900 mb-6">Subject Insights</h3>
                                 <div className="h-64">
-                                    {analytics.subjectReport && analytics.subjectReport.length > 0 ? (
-                                        <Bar
-                                            data={getChartData(analytics.subjectReport.slice(0, 5), 'Avg Score %', 'rgba(236, 72, 153, 0.6)')}
-                                            options={chartOptions}
-                                        />
-                                    ) : (
-                                        <div className="flex items-center justify-center h-full text-gray-500 italic">
-                                            No subject data available
-                                        </div>
-                                    )}
+                                    <Bar
+                                        data={{
+                                            labels: (analytics.subjectReport || []).slice(0, 5).map(d => d.name),
+                                            datasets: [{
+                                                label: 'Avg Score %',
+                                                data: (analytics.subjectReport || []).slice(0, 5).map(d => d.average),
+                                                backgroundColor: '#334155',
+                                                borderRadius: 6,
+                                            }]
+                                        }}
+                                        options={chartOptions}
+                                    />
                                 </div>
                             </div>
                         </div>
@@ -160,17 +254,15 @@ const HodDashboard = () => {
     };
 
     return (
-        <div className="min-h-screen bg-[#020617] text-white font-['Outfit'] flex overflow-hidden">
+        <div className="min-h-screen bg-gray-50 text-gray-900 font-['Outfit'] flex overflow-hidden">
             {/* Sidebar */}
-            <aside className="w-72 bg-[#0f172a]/50 backdrop-blur-3xl border-r border-white/10 flex flex-col z-20 transition-all">
+            <aside className="w-72 bg-[#0f172a] text-white flex flex-col z-20">
                 <div className="p-8">
                     <div className="flex items-center gap-3 mb-10">
-                        <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center text-xl shadow-[0_0_20px_rgba(168,85,247,0.4)]">
-                            <FaLayerGroup />
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-black text-xl font-black">
+                            A
                         </div>
-                        <h2 className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-500 tracking-tighter">
-                            AIML CORE
-                        </h2>
+                        <h2 className="text-xl font-bold tracking-tight">AIML CORE</h2>
                     </div>
 
                     <nav className="space-y-2">
@@ -178,176 +270,99 @@ const HodDashboard = () => {
                             <button
                                 key={view.id}
                                 onClick={() => setActiveView(view.id)}
-                                className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl transition-all duration-300 group ${activeView === view.id
-                                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg'
-                                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                                className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all duration-300 group ${activeView === view.id
+                                    ? 'bg-white text-black shadow-lg font-bold'
+                                    : 'text-gray-400 hover:text-white hover:bg-white/10'
                                     }`}
                             >
-                                <span className={`${activeView === view.id ? 'scale-110' : 'group-hover:scale-110'} transition-transform`}>
+                                <span className={`${activeView === view.id ? '' : 'opacity-70 group-hover:opacity-100'}`}>
                                     {view.icon}
                                 </span>
-                                <span className="font-bold tracking-tight">{view.name}</span>
+                                <span className="tracking-tight">{view.name}</span>
                             </button>
                         ))}
                     </nav>
                 </div>
 
-                <div className="mt-auto p-8 border-t border-white/5">
-                    <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 p-6 rounded-3xl border border-white/10">
-                        <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Export Reports</p>
+                <div className="mt-auto p-8 border-t border-white/5 space-y-6">
+                    <div>
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4">Export Reports</p>
                         <div className="grid grid-cols-3 gap-2">
                             {['pdf', 'excel', 'word'].map(fmt => (
                                 <button
                                     key={fmt}
                                     onClick={() => handleExport(fmt)}
                                     disabled={exporting}
-                                    className="p-3 bg-white/5 rounded-xl hover:bg-white/20 transition-all flex items-center justify-center group"
+                                    className="p-3 bg-white/5 rounded-xl hover:bg-white/20 transition-all flex items-center justify-center text-gray-400 hover:text-white"
                                     title={`Export as ${fmt}`}
                                 >
-                                    <FaDownload className={`text-xs ${exporting ? 'animate-bounce' : 'group-hover:scale-125 transition-transform'}`} />
+                                    {fmt === 'pdf' && <FaFilePdf className="text-red-400" />}
+                                    {fmt === 'excel' && <FaFileExcel className="text-green-400" />}
+                                    {fmt === 'word' && <FaFileWord className="text-blue-400" />}
                                 </button>
                             ))}
                         </div>
                     </div>
+
+                    <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center gap-3 px-4 py-3 bg-red-500/10 text-red-500 rounded-xl font-bold hover:bg-red-500 hover:text-white transition-all"
+                    >
+                        <FaSignOutAlt />
+                        <span>Logout</span>
+                    </button>
                 </div>
             </aside>
 
             {/* Main Content */}
-            <main className="flex-1 overflow-y-auto p-10 relative">
-                {/* Header Controls */}
+            <main className="flex-1 overflow-y-auto p-10">
                 <header className="flex flex-wrap items-center justify-between gap-6 mb-12">
                     <div>
-                        <h1 className="text-4xl font-black text-white tracking-tighter mb-2">
-                            Dashboard <span className="text-purple-500">.</span>
+                        <h1 className="text-4xl font-black text-gray-900 tracking-tighter mb-2">
+                            Dashboard
                         </h1>
-                        <p className="text-gray-400 font-medium">Monitoring {views.find(v => v.id === activeView)?.name} Analysis</p>
+                        <p className="text-gray-500 font-medium">{views.find(v => v.id === activeView)?.name} Analysis</p>
                     </div>
 
-                    <div className="flex items-center gap-4 bg-white/5 p-2 rounded-2xl border border-white/10 backdrop-blur-xl">
-                        <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500 transition-colors">
-                            <FaFilter className="text-purple-400 text-xs" />
+                    <div className="flex items-center gap-4 bg-white p-2 rounded-2xl border border-gray-100 shadow-sm">
+                        <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-xl border border-gray-100">
+                            <FaFilter className="text-gray-400 text-xs" />
                             <select
                                 value={year}
                                 onChange={(e) => setYear(e.target.value)}
-                                className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer text-white"
+                                className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer text-gray-700"
                             >
-                                <option value={2} className="bg-[#0f172a] text-white">Year 2</option>
-                                <option value={3} className="bg-[#0f172a] text-white">Year 3</option>
-                                <option value={4} className="bg-[#0f172a] text-white">Year 4</option>
+                                <option value={2}>Year 2</option>
+                                <option value={3}>Year 3</option>
+                                <option value={4}>Year 4</option>
                             </select>
                         </div>
-                        <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-xl border border-white/5 hover:border-pink-500 transition-colors">
-                            <FaLayerGroup className="text-pink-400 text-xs" />
+                        <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-xl border border-gray-100">
+                            <FaLayerGroup className="text-gray-400 text-xs" />
                             <select
                                 value={semester}
                                 onChange={(e) => setSemester(e.target.value)}
-                                className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer text-white"
+                                className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer text-gray-700"
                             >
-                                <option value={1} className="bg-[#0f172a] text-white">Semester I</option>
-                                <option value={2} className="bg-[#0f172a] text-white">Semester II</option>
+                                <option value={1}>Semester I</option>
+                                <option value={2}>Semester II</option>
+                                <option value={5}>Semester V</option>
                             </select>
                         </div>
                     </div>
                 </header>
 
                 {renderView()}
-
-                {/* Background Decorations */}
-                <div className="fixed top-1/2 right-0 w-96 h-96 bg-purple-500/10 blur-[120px] rounded-full pointer-events-none -z-10"></div>
-                <div className="fixed bottom-0 left-1/2 w-96 h-96 bg-pink-500/10 blur-[120px] rounded-full pointer-events-none -z-10"></div>
             </main>
         </div>
     );
 };
 
-// Sub-components
-const StatCard = ({ title, value, gradient }) => (
-    <div className="relative group perspective-1000">
-        <div className={`absolute -inset-0.5 bg-gradient-to-r ${gradient} rounded-3xl blur opacity-20 group-hover:opacity-40 transition duration-500`}></div>
-        <div className="relative bg-[#0f172a]/80 backdrop-blur-xl p-8 rounded-3xl border border-white/10 flex flex-col items-center text-center transform group-hover:translate-z-10 transition-transform">
-            <h3 className="text-gray-400 text-xs font-black uppercase tracking-[0.2em] mb-4">{title}</h3>
-            <p className={`text-4xl font-black bg-clip-text text-transparent bg-gradient-to-r ${gradient}`}>
-                {value}
-            </p>
-        </div>
+const StatCard = ({ title, value }) => (
+    <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-xl shadow-gray-200/50 flex flex-col items-center justify-center text-center">
+        <h3 className="text-gray-400 text-xs font-black uppercase tracking-[0.2em] mb-4">{title}</h3>
+        <p className="text-4xl font-black text-gray-900">{value}</p>
     </div>
 );
-
-const ReportView = ({ title, data, color }) => {
-    if (!data || data.length === 0) {
-        return (
-            <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-20 rounded-[2.5rem] text-center animate-in fade-in duration-700">
-                <div className="text-6xl mb-6 opacity-20">📂</div>
-                <h2 className="text-2xl font-bold text-gray-400 font-['Outfit']">No Analytics Data Available</h2>
-                <p className="text-gray-500 mt-2 font-medium">Try selecting a different academic year or semester.</p>
-            </div>
-        );
-    }
-    return (
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
-            <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-[2.5rem]">
-                <h2 className="text-2xl font-black text-white mb-8">{title} Analysis</h2>
-                <div className="h-[400px]">
-                    <Bar
-                        data={{
-                            labels: data.map(d => d.name),
-                            datasets: [{
-                                label: 'Average Score (%)',
-                                data: data.map(d => d.average),
-                                backgroundColor: color,
-                                borderRadius: 12,
-                            }]
-                        }}
-                        options={chartOptions}
-                    />
-                </div>
-            </div>
-
-            <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-[2.5rem] overflow-hidden">
-                <h2 className="text-2xl font-black text-white mb-8">Detailed Stats</h2>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="bg-white/5 text-gray-400 text-[10px] uppercase font-black tracking-widest">
-                            <tr>
-                                <th className="px-8 py-4">S.No</th>
-                                <th className="px-8 py-4">Name</th>
-                                <th className="px-8 py-4">Avg Score</th>
-                                <th className="px-8 py-4">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/5">
-                            {data.map((item, idx) => {
-                                const score = parseFloat(item.average);
-                                const rating = score >= 90 ? 'High' : score >= 75 ? 'Mid' : 'Low';
-                                const badgeColor = score >= 90 ? 'bg-green-500' : score >= 75 ? 'bg-blue-500' : 'bg-red-500';
-
-                                return (
-                                    <tr key={idx} className="hover:bg-white/5 transition-colors group">
-                                        <td className="px-8 py-6 text-gray-500 font-bold">{idx + 1}</td>
-                                        <td className="px-8 py-6 text-white font-bold">{item.name}</td>
-                                        <td className="px-8 py-6">
-                                            <div className="flex items-center gap-3">
-                                                <div className="flex-1 h-2 bg-white/5 rounded-full overflow-hidden w-24">
-                                                    <div className={`h-full ${item.average >= 90 ? 'bg-purple-500' : 'bg-pink-500'} transition-all`} style={{ width: `${item.average}%` }}></div>
-                                                </div>
-                                                <span className="text-sm font-black">{item.average}%</span>
-                                            </div>
-                                        </td>
-                                        <td className="px-8 py-6 text-white font-bold">
-                                            <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase ${badgeColor}/20 text-white border border-${badgeColor.split('-')[1]}-500/30`}>
-                                                {rating}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 
 export default HodDashboard;

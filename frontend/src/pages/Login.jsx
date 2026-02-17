@@ -1,56 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 const Login = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
     const { login } = useAuth();
     const navigate = useNavigate();
-    const { role } = useParams();
-
-    useEffect(() => {
-        const handleMouseMove = (e) => {
-            setMousePos({
-                x: (e.clientX / window.innerWidth - 0.5) * 20,
-                y: (e.clientY / window.innerHeight - 0.5) * 20
-            });
-        };
-        window.addEventListener('mousemove', handleMouseMove);
-        return () => window.removeEventListener('mousemove', handleMouseMove);
-    }, []);
-
-    const roleConfig = {
-        student: {
-            title: 'Student Portal',
-            icon: '🎓',
-            gradient: 'from-blue-600 via-cyan-500 to-blue-400',
-            glow: 'rgba(59, 130, 246, 0.5)',
-            placeholder: 'Enter your Roll ID',
-            label: 'Roll ID',
-        },
-        hod: {
-            title: 'HOD Portal',
-            icon: '👔',
-            gradient: 'from-purple-600 via-pink-500 to-purple-400',
-            glow: 'rgba(168, 85, 247, 0.5)',
-            placeholder: 'Enter your Username',
-            label: 'Username',
-        },
-        admin: {
-            title: 'Admin Portal',
-            icon: '⚙️',
-            gradient: 'from-orange-600 via-red-500 to-orange-400',
-            glow: 'rgba(234, 88, 12, 0.5)',
-            placeholder: 'Enter your Username',
-            label: 'Username',
-        },
-    };
-
-    const config = roleConfig[role] || roleConfig.student;
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -58,15 +16,16 @@ const Login = () => {
         setLoading(true);
 
         try {
+            // Unified login - backend handles role detection
             const user = await login({ username, password });
-            if (user.role !== role) {
-                setError(`Invalid credentials for ${role} portal`);
-                setLoading(false);
-                return;
-            }
+
+            // Redirect based on role returned from backend
             if (user.role === 'student') navigate('/student/dashboard');
             else if (user.role === 'hod') navigate('/hod/dashboard');
             else if (user.role === 'admin') navigate('/admin/dashboard');
+            else {
+                setError('Unknown role detected. Contact admin.');
+            }
         } catch (err) {
             setError(err.response?.data?.message || 'Invalid credentials');
         } finally {
@@ -75,143 +34,97 @@ const Login = () => {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-[#020617] relative overflow-hidden font-['Outfit']">
-            {/* Unreal Background Elements */}
-            <div className="absolute inset-0 z-0">
-                {/* Interactive Mesh Gradient */}
-                <div
-                    className="absolute inset-0 opacity-40 transition-transform duration-300 ease-out"
-                    style={{
-                        transform: `translate(${mousePos.x * -1.5}px, ${mousePos.y * -1.5}px)`,
-                        background: `radial-gradient(circle at 50% 50%, #1e293b 0%, #020617 100%)`
-                    }}
-                />
-
-                {/* Floating Orbs */}
-                <div
-                    className={`absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-gradient-to-br ${config.gradient} rounded-full blur-[120px] opacity-20 animate-morph`}
-                    style={{ transform: `translate(${mousePos.x}px, ${mousePos.y}px)` }}
-                />
-                <div
-                    className={`absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-gradient-to-tr ${config.gradient} rounded-full blur-[120px] opacity-20 animate-morph`}
-                    style={{ transform: `translate(${mousePos.x * -1}px, ${mousePos.y * -1}px)`, animationDelay: '-4s' }}
-                />
-
-                {/* Grid Pattern */}
-                <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
-                <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:40px_40px]"></div>
-            </div>
-
-            <div className="relative z-10 w-full max-w-md px-4">
-                {/* Floating Header */}
-                <div
-                    className="mb-12 text-center transform transition-transform duration-500"
-                    style={{ transform: `translateY(${mousePos.y * 0.5}px)` }}
-                >
-                    <button
-                        onClick={() => navigate('/')}
-                        className="mb-8 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all group"
-                    >
-                        <svg className="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                        </svg>
-                        Exit to Selection
-                    </button>
-
-                    <div className="inline-block relative">
-                        <div className={`absolute inset-0 bg-gradient-to-r ${config.gradient} blur-3xl opacity-20 animate-pulse`}></div>
-                        <div className="relative text-7xl mb-6 animate-float drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">
-                            {config.icon}
-                        </div>
+        <div className="min-h-screen flex font-['Outfit']">
+            {/* Left Side - Black Branding */}
+            <div className="hidden lg:flex w-1/3 bg-[#0f172a] text-white flex-col justify-between p-12 relative overflow-hidden">
+                <div className="relative z-10">
+                    <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-black text-2xl font-black mb-6">
+                        A
                     </div>
-
-                    <h1 className={`text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r ${config.gradient} tracking-tight mb-2 animate-text-glow`}>
-                        {config.title}
-                    </h1>
-                    <div className={`h-1 w-24 mx-auto rounded-full bg-gradient-to-r ${config.gradient} opacity-50`}></div>
+                    <h1 className="text-4xl font-bold tracking-tight mb-2">Department of AIML, NNRG</h1>
+                    <p className="text-gray-400">Feedback System</p>
                 </div>
 
-                {/* Glass Card */}
-                <div
-                    className="relative group perspective-1000"
-                    style={{
-                        transform: `rotateX(${mousePos.y * -0.5}deg) rotateY(${mousePos.x * 0.5}deg)`,
-                        transition: 'transform 0.1s ease-out'
-                    }}
-                >
-                    <div className={`absolute -inset-1 bg-gradient-to-r ${config.gradient} rounded-[2rem] blur opacity-20 group-hover:opacity-40 transition duration-700 animate-pulse`}></div>
+                <div className="relative z-10">
+                    <blockquote className="text-xl font-medium leading-relaxed opacity-80">
+                        "Empowering education through continuous improvement and transparent feedback mechanisms."
+                    </blockquote>
+                </div>
 
-                    <div className="relative bg-white/[0.03] backdrop-blur-2xl p-10 rounded-[2rem] border border-white/10 shadow-2xl">
-                        {error && (
-                            <div className="bg-red-500/10 border border-red-500/50 text-red-200 p-4 mb-8 rounded-xl text-sm text-center animate-shake backdrop-blur-md">
-                                <span className="mr-2">⚠️</span> {error}
-                            </div>
-                        )}
+                {/* Abstract Decoration */}
+                <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/10 rounded-full blur-[100px] transform translate-x-1/2 -translate-y-1/2"></div>
+                <div className="absolute bottom-0 left-0 w-64 h-64 bg-purple-600/10 rounded-full blur-[80px] transform -translate-x-1/2 translate-y-1/2"></div>
+            </div>
 
-                        <form onSubmit={handleSubmit} className="space-y-8">
-                            <div className="space-y-2 relative group/input">
-                                <label className="text-gray-400 text-xs font-bold uppercase tracking-[0.2em] ml-1 transition-colors group-focus-within/input:text-white">
-                                    {config.label}
-                                </label>
-                                <div className="relative">
-                                    <input
-                                        type="text"
-                                        value={username}
-                                        onChange={(e) => setUsername(e.target.value)}
-                                        className="w-full bg-white/5 text-white border border-white/10 rounded-xl px-5 py-4 focus:outline-none focus:border-white/30 focus:bg-white/10 transition-all duration-300 placeholder-gray-600"
-                                        placeholder={config.placeholder}
-                                        required
-                                        disabled={loading}
-                                    />
-                                    <div className={`absolute bottom-0 left-0 h-[2px] w-0 bg-gradient-to-r ${config.gradient} transition-all duration-500 group-focus-within/input:w-full`}></div>
-                                </div>
-                            </div>
+            {/* Right Side - White Login Form */}
+            <div className="flex-1 bg-white flex items-center justify-center p-8">
+                <div className="w-full max-w-md space-y-8">
+                    <div className="text-center lg:text-left">
+                        <h2 className="text-3xl font-black text-gray-900 tracking-tight">Welcome back</h2>
+                        <p className="mt-2 text-gray-500">Please enter your details to sign in.</p>
+                    </div>
 
-                            <div className="space-y-2 relative group/input">
-                                <label className="text-gray-400 text-xs font-bold uppercase tracking-[0.2em] ml-1 transition-colors group-focus-within/input:text-white">
-                                    Cipher Key
-                                </label>
-                                <div className="relative">
-                                    <input
-                                        type="password"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        className="w-full bg-white/5 text-white border border-white/10 rounded-xl px-5 py-4 focus:outline-none focus:border-white/30 focus:bg-white/10 transition-all duration-300 placeholder-gray-600"
-                                        placeholder="••••••••"
-                                        required
-                                        disabled={loading}
-                                    />
-                                    <div className={`absolute bottom-0 left-0 h-[2px] w-0 bg-gradient-to-r ${config.gradient} transition-all duration-500 group-focus-within/input:w-full`}></div>
-                                </div>
-                            </div>
-
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className={`relative w-full py-5 rounded-xl bg-white text-black font-black uppercase tracking-widest overflow-hidden group/btn hover:text-white transition-colors duration-300 disabled:opacity-50`}
-                            >
-                                <div className={`absolute inset-0 bg-gradient-to-r ${config.gradient} translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300`}></div>
-                                <span className="relative z-10 flex items-center justify-center gap-3">
-                                    {loading ? (
-                                        <>
-                                            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                            </svg>
-                                            Authenticating...
-                                        </>
-                                    ) : (
-                                        <>Access Portal <span className="text-xl">→</span></>
-                                    )}
-                                </span>
-                            </button>
-                        </form>
-
-                        <div className="mt-12 text-center space-y-4">
-                            <p className="text-[10px] text-gray-500 uppercase tracking-[0.4em] font-bold">
-                                Department of AIML • Advanced Systems
-                            </p>
+                    {error && (
+                        <div className="p-4 rounded-xl bg-red-50 text-red-600 border border-red-100 text-sm font-medium flex items-center gap-2">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            {error}
                         </div>
+                    )}
+
+                    <form onSubmit={handleSubmit} className="space-y-6">
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700 uppercase tracking-wide">
+                                User ID / Roll Number
+                            </label>
+                            <input
+                                type="text"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                className="w-full px-5 py-4 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition-all font-medium placeholder-gray-400"
+                                placeholder="Enter your ID"
+                                required
+                                disabled={loading}
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700 uppercase tracking-wide">
+                                Password
+                            </label>
+                            <input
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="w-full px-5 py-4 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition-all font-medium placeholder-gray-400"
+                                placeholder="••••••••"
+                                required
+                                disabled={loading}
+                            />
+                        </div>
+
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full py-4 rounded-xl bg-[#0f172a] text-white font-bold text-lg hover:bg-black transition-all transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed shadow-xl shadow-gray-200"
+                        >
+                            {loading ? (
+                                <span className="flex items-center justify-center gap-2">
+                                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Verifying Creds...
+                                </span>
+                            ) : (
+                                "Sign In"
+                            )}
+                        </button>
+                    </form>
+
+                    <div className="pt-6 border-t border-gray-100 text-center">
+                        <p className="text-xs text-gray-400 uppercase tracking-widest font-bold">
+                            Secure System • Department of AIML
+                        </p>
                     </div>
                 </div>
             </div>

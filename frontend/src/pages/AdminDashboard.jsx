@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/axios';
+import { FaCloudUploadAlt, FaTrash, FaEdit, FaCheckCircle, FaExclamationTriangle, FaList, FaSignOutAlt } from 'react-icons/fa';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 const AdminDashboard = () => {
     const [file, setFile] = useState(null);
@@ -11,6 +14,15 @@ const AdminDashboard = () => {
     const [dragActive, setDragActive] = useState(false);
     const [existingSets, setExistingSets] = useState([]);
     const [editingSetId, setEditingSetId] = useState(null);
+    const [activeSection, setActiveSection] = useState('import'); // import, questions, danger
+
+    const { logout } = useAuth();
+    const navigate = useNavigate();
+
+    const handleLogout = () => {
+        logout();
+        navigate('/');
+    };
 
     const fetchQuestionSets = async () => {
         try {
@@ -54,7 +66,7 @@ const AdminDashboard = () => {
                 setFile(droppedFile);
                 setMessage(null);
             } else {
-                setMessage('Please upload an Excel file (.xlsx or .xls)');
+                setMessage({ type: 'error', text: 'Please upload an Excel file (.xlsx or .xls)' });
             }
         }
     };
@@ -153,8 +165,7 @@ const AdminDashboard = () => {
         setEditingSetId(set._id);
         setQuestions(set.questions);
         setQuestionType(set.type);
-        // Scroll to the editor
-        document.getElementById('question-editor').scrollIntoView({ behavior: 'smooth' });
+        setActiveSection('questions');
     };
 
     const handleClearValues = async (type) => {
@@ -170,41 +181,93 @@ const AdminDashboard = () => {
         }
     };
 
+    const scrollToSection = (id) => {
+        setActiveSection(id);
+        const element = document.getElementById(id);
+        if (element) element.scrollIntoView({ behavior: 'smooth' });
+    };
+
     return (
-        <div className="min-h-screen bg-gradient-to-br from-[#0a0e27] via-[#1a1f3a] to-[#0a0e27] p-6">
-            <div className="max-w-6xl mx-auto">
-                {/* Header */}
-                <div className="mb-8">
-                    <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-400 mb-2">
-                        Admin Control Panel
-                    </h1>
-                    <p className="text-gray-400">Manage system data and configurations</p>
+        <div className="min-h-screen bg-gray-50 flex font-['Outfit']">
+            {/* Sidebar */}
+            <aside className="w-72 bg-[#0f172a] text-white flex flex-col p-8 fixed h-full z-10 hidden md:flex">
+                <div className="mb-12">
+                    <div className="flex items-center gap-3 text-white mb-2">
+                        <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-black font-black text-xl">
+                            A
+                        </div>
+                        <span className="font-bold text-xl tracking-tight">Admin Console</span>
+                    </div>
+                    <p className="text-gray-400 text-sm ml-14">System Management</p>
                 </div>
 
-                {/* Upload Section */}
-                <div className="relative group mb-8">
-                    <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-2xl blur opacity-30 group-hover:opacity-50 transition duration-500"></div>
-                    <div className="relative bg-[#0f172a]/90 backdrop-blur-xl p-8 rounded-2xl border border-white/10">
-                        <div className="flex items-center gap-3 mb-6">
-                            <div className="text-3xl">📤</div>
+                <nav className="space-y-4">
+                    <button
+                        onClick={() => scrollToSection('import')}
+                        className={`w-full text-left px-6 py-4 rounded-xl font-bold transition-all ${activeSection === 'import' ? 'bg-white text-black' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    >
+                        <div className="flex items-center gap-3">
+                            <FaCloudUploadAlt /> Data Import
+                        </div>
+                    </button>
+                    <button
+                        onClick={() => scrollToSection('questions')}
+                        className={`w-full text-left px-6 py-4 rounded-xl font-bold transition-all ${activeSection === 'questions' ? 'bg-white text-black' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    >
+                        <div className="flex items-center gap-3">
+                            <FaList /> Questions
+                        </div>
+                    </button>
+                    <button
+                        onClick={() => scrollToSection('danger')}
+                        className={`w-full text-left px-6 py-4 rounded-xl font-bold transition-all ${activeSection === 'danger' ? 'bg-white text-black' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    >
+                        <div className="flex items-center gap-3">
+                            <FaExclamationTriangle /> Danger Zone
+                        </div>
+                    </button>
+                </nav>
+
+                <div className="mt-auto">
+                    <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center gap-3 px-4 py-3 bg-red-500/10 text-red-500 rounded-xl font-bold hover:bg-red-500 hover:text-white transition-all"
+                    >
+                        <FaSignOutAlt />
+                        <span>Logout</span>
+                    </button>
+                </div>
+            </aside>
+
+            {/* Main Content */}
+            <main className="flex-1 md:ml-72 p-8 md:p-12">
+                <div className="max-w-5xl mx-auto space-y-12">
+
+                    {/* Header */}
+                    <div className="mb-8">
+                        <h1 className="text-4xl font-black text-gray-900 mb-2">Control Panel</h1>
+                        <p className="text-gray-500 text-lg">Manage users, data, and system configurations.</p>
+                    </div>
+
+                    {/* Import Section */}
+                    <section id="import" className="bg-white rounded-3xl p-8 shadow-xl shadow-gray-200/50 border border-gray-100">
+                        <div className="flex items-center gap-4 mb-8">
+                            <div className="w-12 h-12 bg-black text-white rounded-full flex items-center justify-center text-xl">
+                                <FaCloudUploadAlt />
+                            </div>
                             <div>
-                                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400">
-                                    Data Import
-                                </h2>
-                                <p className="text-gray-400 text-sm">Upload Excel file containing Students, Faculty, and Subjects sheets</p>
+                                <h2 className="text-2xl font-black text-gray-900">Data Import</h2>
+                                <p className="text-gray-500">Upload Excel (.xlsx) file with Students, Faculty, and Subjects.</p>
                             </div>
                         </div>
 
-                        {/* Drag & Drop Area */}
                         <div
-                            className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-300 ${dragActive
-                                ? 'border-blue-500 bg-blue-500/10'
-                                : 'border-gray-600 hover:border-blue-500/50'
-                                }`}
+                            className={`border-4 border-dashed rounded-2xl p-12 text-center transition-all duration-300 cursor-pointer ${dragActive ? 'border-black bg-gray-50' : 'border-gray-200 hover:border-gray-400'}`}
                             onDragEnter={handleDrag}
                             onDragLeave={handleDrag}
                             onDragOver={handleDrag}
                             onDrop={handleDrop}
+                            onClick={() => document.getElementById('file-upload').click()}
                         >
                             <input
                                 type="file"
@@ -216,273 +279,207 @@ const AdminDashboard = () => {
 
                             {file ? (
                                 <div className="space-y-4">
-                                    <div className="text-5xl">📊</div>
+                                    <div className="text-5xl">📄</div>
                                     <div>
-                                        <p className="text-white font-semibold text-lg">{file.name}</p>
+                                        <p className="text-gray-900 font-bold text-lg">{file.name}</p>
                                         <p className="text-gray-400 text-sm">{(file.size / 1024).toFixed(2)} KB</p>
                                     </div>
                                     <button
-                                        onClick={() => setFile(null)}
-                                        className="text-red-400 hover:text-red-300 text-sm underline"
+                                        onClick={(e) => { e.stopPropagation(); setFile(null); }}
+                                        className="text-red-500 font-bold hover:underline text-sm"
                                     >
                                         Remove file
                                     </button>
                                 </div>
                             ) : (
-                                <div className="space-y-4">
-                                    <div className="text-5xl">📁</div>
-                                    <div>
-                                        <p className="text-white font-semibold mb-2">
-                                            Drag and drop your Excel file here
-                                        </p>
-                                        <p className="text-gray-400 text-sm mb-4">or</p>
-                                        <label
-                                            htmlFor="file-upload"
-                                            className="inline-block px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-bold rounded-lg cursor-pointer hover:scale-105 transform transition-all duration-200 shadow-lg hover:shadow-blue-500/50"
-                                        >
-                                            Browse Files
-                                        </label>
-                                    </div>
-                                    <p className="text-gray-500 text-xs">Supported formats: .xlsx, .xls</p>
+                                <div className="space-y-4 text-gray-400">
+                                    <div className="text-5xl mb-4 text-gray-300">📂</div>
+                                    <p className="font-bold text-lg">Click to upload or drag and drop</p>
+                                    <p className="text-sm">Excel files only</p>
                                 </div>
                             )}
                         </div>
 
-                        {/* Upload Button */}
-                        {file && (
-                            <div className="mt-6 flex justify-center">
-                                <button
-                                    onClick={handleUpload}
-                                    disabled={uploading}
-                                    className="px-8 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-bold rounded-lg shadow-lg hover:shadow-blue-500/50 hover:scale-105 transform transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                                >
-                                    {uploading ? (
-                                        <span className="flex items-center gap-3">
-                                            <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                            </svg>
-                                            Uploading...
-                                        </span>
-                                    ) : (
-                                        'Upload Data'
-                                    )}
-                                </button>
-                            </div>
-                        )}
-
-                        {/* Message */}
                         {message && (
-                            <div className={`mt-6 p-4 rounded-lg ${message.type === 'success'
-                                ? 'bg-green-500/10 border border-green-500/50 text-green-200'
-                                : 'bg-red-500/10 border border-red-500/50 text-red-200'
-                                }`}>
+                            <div className={`mt-6 p-4 rounded-xl flex items-center gap-3 font-bold ${message.type === 'success' ? 'bg-green-50 text-green-600 border border-green-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
+                                {message.type === 'success' ? <FaCheckCircle /> : <FaExclamationTriangle />}
                                 {message.text}
                             </div>
                         )}
-                    </div>
-                </div>
 
-                {/* Question Repository */}
-                <div className="relative group mb-8">
-                    <div className="absolute -inset-0.5 bg-gradient-to-r from-green-500 to-emerald-500 rounded-2xl blur opacity-30 group-hover:opacity-50 transition duration-500"></div>
-                    <div className="relative bg-[#0f172a]/90 backdrop-blur-xl p-8 rounded-2xl border border-white/10">
-                        <div className="flex items-center gap-3 mb-6">
-                            <div className="text-3xl">📚</div>
-                            <div>
-                                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-400">
-                                    Question Repository
-                                </h2>
-                                <p className="text-gray-400 text-sm">View, edit, or delete existing question sets</p>
+                        {file && (
+                            <div className="mt-8 flex justify-end">
+                                <button
+                                    onClick={handleUpload}
+                                    disabled={uploading}
+                                    className="px-8 py-4 bg-black text-white font-black rounded-xl hover:bg-gray-800 transition-all shadow-lg shadow-black/20"
+                                >
+                                    {uploading ? 'Processing...' : 'Upload Data'}
+                                </button>
                             </div>
-                        </div>
+                        )}
+                    </section>
 
-                        <div className="space-y-4">
-                            {existingSets.length === 0 ? (
-                                <p className="text-gray-500 italic text-center py-8">No question sets found.</p>
-                            ) : (
-                                existingSets.map((set) => (
-                                    <div key={set._id} className="bg-[#1e293b]/50 border border-white/5 p-5 rounded-xl hover:bg-[#1e293b] transition-all">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div className="flex items-center gap-3">
-                                                <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${set.type === 'theory'
-                                                    ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-                                                    : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                                                    }`}>
-                                                    {set.type}
-                                                </span>
-                                                {set.isActive && (
-                                                    <span className="px-3 py-1 bg-green-500/20 text-green-400 border border-green-500/30 rounded-full text-[10px] font-black uppercase animate-pulse">
-                                                        Active
+                    {/* Question Repository Section */}
+                    <section id="questions" className="space-y-8">
+                        <div className="bg-white rounded-3xl p-8 shadow-xl shadow-gray-200/50 border border-gray-100">
+                            <div className="flex items-center gap-4 mb-8">
+                                <div className="w-12 h-12 bg-black text-white rounded-full flex items-center justify-center text-xl">
+                                    <FaList />
+                                </div>
+                                <div>
+                                    <h2 className="text-2xl font-black text-gray-900">Question Repository</h2>
+                                    <p className="text-gray-500">Manage existing feedback questions.</p>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {existingSets.length === 0 ? (
+                                    <p className="text-gray-400 italic">No question sets found.</p>
+                                ) : (
+                                    existingSets.map((set) => (
+                                        <div key={set._id} className="p-6 rounded-2xl border border-gray-100 hover:shadow-lg hover:border-gray-200 transition-all bg-gray-50 group">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div className="flex gap-2">
+                                                    <span className="px-3 py-1 bg-white border border-gray-200 rounded-lg text-xs font-bold uppercase tracking-wider text-gray-600">
+                                                        {set.type}
                                                     </span>
-                                                )}
-                                            </div>
-                                            <div className="flex gap-2">
-                                                {!set.isActive && (
-                                                    <button
-                                                        onClick={() => handleActivateSet(set._id)}
-                                                        className="px-3 py-1 text-[10px] font-black uppercase text-green-400 hover:bg-green-500/10 rounded-lg border border-green-500/20 transition-all"
-                                                    >
-                                                        Activate
+                                                    {set.isActive && (
+                                                        <span className="px-3 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-bold uppercase tracking-wider">
+                                                            Active
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
+                                                    {!set.isActive && (
+                                                        <button onClick={() => handleActivateSet(set._id)} className="p-2 hover:bg-green-100 text-green-600 rounded-lg" title="Activate">
+                                                            <FaCheckCircle />
+                                                        </button>
+                                                    )}
+                                                    <button onClick={() => handleEditSet(set)} className="p-2 hover:bg-blue-100 text-blue-600 rounded-lg" title="Edit">
+                                                        <FaEdit />
                                                     </button>
-                                                )}
-                                                <button
-                                                    onClick={() => handleEditSet(set)}
-                                                    className="px-3 py-1 text-[10px] font-black uppercase text-blue-400 hover:bg-blue-500/10 rounded-lg border border-blue-500/20 transition-all"
-                                                >
-                                                    Edit
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDeleteSet(set._id)}
-                                                    className="px-3 py-1 text-[10px] font-black uppercase text-red-400 hover:bg-red-500/10 rounded-lg border border-red-500/20 transition-all"
-                                                >
-                                                    Delete
-                                                </button>
+                                                    <button onClick={() => handleDeleteSet(set._id)} className="p-2 hover:bg-red-100 text-red-600 rounded-lg" title="Delete">
+                                                        <FaTrash />
+                                                    </button>
+                                                </div>
                                             </div>
+                                            <p className="text-gray-900 font-bold text-2xl">{set.questions.length} Questions</p>
+                                            <p className="text-gray-400 text-sm mt-1">Created: {new Date(set.createdAt).toLocaleDateString()}</p>
                                         </div>
-                                        <div className="text-gray-400 text-sm">
-                                            <span className="font-bold text-gray-200">{set.questions.length}</span> questions
-                                            <span className="mx-2">•</span>
-                                            Created: {new Date(set.createdAt).toLocaleDateString()}
-                                        </div>
-                                    </div>
-                                ))
-                            )}
+                                    ))
+                                )}
+                            </div>
                         </div>
-                    </div>
-                </div>
 
-                {/* Question Management */}
-                <div id="question-editor" className="relative group mb-8 scroll-mt-6">
-                    <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl blur opacity-30 group-hover:opacity-50 transition duration-500"></div>
-                    <div className="relative bg-[#0f172a]/90 backdrop-blur-xl p-8 rounded-2xl border border-white/10">
-                        <div className="flex items-center gap-3 mb-6">
-                            <div className="text-3xl">❓</div>
-                            <div className="flex-1">
-                                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">
-                                    {editingSetId ? 'Edit Question Set' : 'Manage Feedback Questions'}
+                        {/* Editor */}
+                        <div className="bg-white rounded-3xl p-8 shadow-xl shadow-gray-200/50 border border-gray-100">
+                            <div className="flex justify-between items-center mb-8">
+                                <h2 className="text-2xl font-black text-gray-900">
+                                    {editingSetId ? 'Edit Question Set' : 'Create New Set'}
                                 </h2>
-                                <p className="text-gray-400 text-sm">{editingSetId ? 'Update the selected question set' : 'Create and manage question sets for feedback forms'}</p>
+                                {editingSetId && (
+                                    <button
+                                        onClick={() => { setEditingSetId(null); setQuestions([]); setQuestionText(''); }}
+                                        className="text-red-500 font-bold hover:underline"
+                                    >
+                                        Cancel Edit
+                                    </button>
+                                )}
                             </div>
-                            {editingSetId && (
-                                <button
-                                    onClick={() => { setEditingSetId(null); setQuestions([]); }}
-                                    className="px-4 py-2 bg-red-500/10 text-red-400 text-xs font-bold rounded-lg border border-red-500/20 hover:bg-red-500/20 transition-all"
-                                >
-                                    Cancel Edit
-                                </button>
-                            )}
-                        </div>
 
-                        {/* Question Type Selector */}
-                        <div className="mb-6">
-                            <label className="block text-gray-300 text-sm font-bold mb-3 uppercase tracking-wide">
-                                Question Type
-                            </label>
-                            <div className="flex gap-4">
-                                <button
-                                    onClick={() => setQuestionType('theory')}
-                                    className={`flex-1 py-3 rounded-lg font-bold transition-all duration-200 ${questionType === 'theory'
-                                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg'
-                                        : 'bg-[#1e293b]/50 text-gray-400 hover:bg-[#1e293b]'
-                                        }`}
-                                >
-                                    Theory
-                                </button>
-                                <button
-                                    onClick={() => setQuestionType('lab')}
-                                    className={`flex-1 py-3 rounded-lg font-bold transition-all duration-200 ${questionType === 'lab'
-                                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg'
-                                        : 'bg-[#1e293b]/50 text-gray-400 hover:bg-[#1e293b]'
-                                        }`}
-                                >
-                                    Lab
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Add Question Input */}
-                        <div className="flex gap-3 mb-6">
-                            <input
-                                type="text"
-                                value={questionText}
-                                onChange={(e) => setQuestionText(e.target.value)}
-                                placeholder="Enter question text..."
-                                className="flex-1 bg-[#1e293b]/50 text-white border border-gray-600 rounded-lg px-4 py-3 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all placeholder-gray-600"
-                                onKeyPress={(e) => e.key === 'Enter' && handleAddQuestion()}
-                            />
-                            <button
-                                onClick={handleAddQuestion}
-                                className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold rounded-lg hover:scale-105 transform transition-all duration-200 shadow-lg hover:shadow-purple-500/50"
-                            >
-                                Add
-                            </button>
-                        </div>
-
-                        {/* Questions List */}
-                        <div className="bg-[#1e293b]/30 rounded-lg p-4 mb-6 max-h-60 overflow-y-auto">
-                            {questions.length === 0 ? (
-                                <p className="text-gray-500 italic text-center py-8">No questions added yet.</p>
-                            ) : (
-                                <ul className="space-y-2">
-                                    {questions.map((q, idx) => (
-                                        <li key={idx} className="flex items-start gap-3 bg-[#0f172a]/50 p-3 rounded-lg group hover:bg-[#0f172a] transition-all">
-                                            <span className="text-purple-400 font-bold min-w-[30px]">{idx + 1}.</span>
-                                            <span className="text-gray-300 flex-1">{q}</span>
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="block text-gray-400 text-xs font-bold uppercase tracking-widest mb-3">Type</label>
+                                    <div className="flex gap-4">
+                                        {['theory', 'lab'].map(type => (
                                             <button
-                                                onClick={() => handleRemoveQuestion(idx)}
-                                                className="text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                key={type}
+                                                onClick={() => setQuestionType(type)}
+                                                className={`flex-1 py-4 rounded-xl font-bold uppercase tracking-widest transition-all ${questionType === type ? 'bg-black text-white shadow-xl shadow-black/20' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
                                             >
-                                                ✕
+                                                {type}
                                             </button>
-                                        </li>
-                                    ))}
-                                </ul>
-                            )}
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-gray-400 text-xs font-bold uppercase tracking-widest mb-3">Questions</label>
+                                    <div className="flex gap-3 mb-4">
+                                        <input
+                                            type="text"
+                                            value={questionText}
+                                            onChange={(e) => setQuestionText(e.target.value)}
+                                            onKeyPress={(e) => e.key === 'Enter' && handleAddQuestion()}
+                                            placeholder="Type question here..."
+                                            className="flex-1 bg-gray-50 border-gray-200 rounded-xl px-6 py-4 font-medium focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black transition-all"
+                                        />
+                                        <button
+                                            onClick={handleAddQuestion}
+                                            className="px-8 bg-black text-white font-bold rounded-xl hover:bg-gray-800"
+                                        >
+                                            Add
+                                        </button>
+                                    </div>
+
+                                    <ul className="space-y-3">
+                                        {questions.map((q, idx) => (
+                                            <li key={idx} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100 group">
+                                                <div className="flex items-center gap-4">
+                                                    <span className="w-6 h-6 rounded-full bg-gray-200 text-gray-600 text-xs font-bold flex items-center justify-center">{idx + 1}</span>
+                                                    <span className="font-medium text-gray-700">{q}</span>
+                                                </div>
+                                                <button onClick={() => handleRemoveQuestion(idx)} className="text-gray-400 hover:text-red-500 transition-colors">
+                                                    <FaTrash className="text-sm" />
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+
+                                <button
+                                    onClick={handleSaveQuestions}
+                                    disabled={questions.length === 0}
+                                    className="w-full py-4 bg-black text-white font-black uppercase tracking-widest rounded-xl hover:bg-gray-900 transition-all shadow-xl shadow-black/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {editingSetId ? 'Update Set' : 'Save & Activate'}
+                                </button>
+                            </div>
                         </div>
+                    </section>
 
-                        {/* Save Button */}
-                        <button
-                            onClick={handleSaveQuestions}
-                            disabled={questions.length === 0}
-                            className="w-full py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold rounded-lg shadow-lg hover:shadow-purple-500/50 hover:scale-[1.02] transform transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                        >
-                            {editingSetId ? 'Update Question Set' : 'Save & Activate Question Set'}
-                        </button>
-                    </div>
-                </div>
-
-                {/* Danger Zone */}
-                <div className="relative group">
-                    <div className="absolute -inset-0.5 bg-gradient-to-r from-red-500 to-pink-500 rounded-2xl blur opacity-30 group-hover:opacity-50 transition duration-500"></div>
-                    <div className="relative bg-[#0f172a]/90 backdrop-blur-xl p-8 rounded-2xl border border-red-500/20">
-                        <div className="flex items-center gap-3 mb-6">
-                            <div className="text-3xl">⚠️</div>
+                    {/* Danger Zone */}
+                    <section id="danger" className="bg-red-50 rounded-3xl p-8 border border-red-100">
+                        <div className="flex items-center gap-4 mb-8">
+                            <div className="w-12 h-12 bg-red-500 text-white rounded-full flex items-center justify-center text-xl">
+                                <FaExclamationTriangle />
+                            </div>
                             <div>
-                                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-pink-400">
-                                    Danger Zone
-                                </h2>
-                                <p className="text-gray-400 text-sm">Irreversible actions - proceed with caution</p>
+                                <h2 className="text-2xl font-black text-red-900">Danger Zone</h2>
+                                <p className="text-red-400">Irreversible system actions.</p>
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <button
                                 onClick={() => handleClearValues('feedback')}
-                                className="py-4 bg-gradient-to-r from-red-600 to-red-700 text-white font-bold rounded-lg hover:scale-105 transform transition-all duration-200 shadow-lg hover:shadow-red-500/50"
+                                className="p-6 bg-white rounded-2xl border border-red-100 hover:border-red-300 transition-all text-left group"
                             >
-                                Clear All Feedback
+                                <h3 className="text-red-600 font-bold text-lg mb-1 group-hover:text-red-700">Clear All Feedback</h3>
+                                <p className="text-gray-400 text-sm">Removes all feedback submissions but keeps student/faculty data.</p>
                             </button>
                             <button
                                 onClick={() => handleClearValues('students')}
-                                className="py-4 bg-gradient-to-r from-red-700 to-red-800 text-white font-bold rounded-lg hover:scale-105 transform transition-all duration-200 shadow-lg hover:shadow-red-500/50"
+                                className="p-6 bg-white rounded-2xl border border-red-100 hover:border-red-300 transition-all text-left group"
                             >
-                                Clear Students & Feedback
+                                <h3 className="text-red-600 font-bold text-lg mb-1 group-hover:text-red-700">Full System Reset</h3>
+                                <p className="text-gray-400 text-sm">Removes ALL data: Students, Faculty, Subjects, and Feedback.</p>
                             </button>
                         </div>
-                    </div>
+                    </section>
                 </div>
-            </div>
+            </main>
         </div>
     );
 };

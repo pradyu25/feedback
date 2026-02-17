@@ -11,12 +11,44 @@ const path = require('path');
 
 // Helper for analytics
 const calculateAnalytics = async (query) => {
-    const feedbacks = await Feedback.find(query)
+    // Ensure types matches Schema (Numbers)
+    const filter = {};
+    if (query.year) filter.year = parseInt(query.year);
+    if (query.semester) filter.semester = parseInt(query.semester);
+
+    const feedbacks = await Feedback.find(filter)
         .populate('facultyId', 'name')
         .populate('subjectId', 'subjectName');
 
-    const completedCount = feedbacks.filter(f => f.isCompleted).length;
+    // Calculate Completed Students (All subjects done)
+    const students = await Student.find(filter);
+    const subjects = await Subject.find(filter);
 
+    const sectionSubjectCount = {};
+    subjects.forEach(s => {
+        if (!sectionSubjectCount[s.section]) sectionSubjectCount[s.section] = 0;
+        sectionSubjectCount[s.section]++;
+    });
+
+    const studentFeedbackCount = {};
+    feedbacks.forEach(f => {
+        if (f.isCompleted) {
+            const sid = f.studentId.toString();
+            studentFeedbackCount[sid] = (studentFeedbackCount[sid] || 0) + 1;
+        }
+    });
+
+    let completedCount = 0;
+    students.forEach(s => {
+        const required = sectionSubjectCount[s.section] || 0;
+        const actual = studentFeedbackCount[s._id.toString()] || 0;
+        // If there are required subjects and student has done >= required, count as 1
+        if (required > 0 && actual >= required) {
+            completedCount++;
+        }
+    });
+
+    // Faculty & Subject Reports Calculation
     const facultyStats = {};
     const subjectStats = {};
 
@@ -24,21 +56,50 @@ const calculateAnalytics = async (query) => {
         if (f.isCompleted) {
             // Faculty
             const fId = f.facultyId._id.toString();
-            if (!facultyStats[fId]) facultyStats[fId] = { name: f.facultyId.name, sum: 0, count: 0 };
+            if (!facultyStats[fId]) {
+                facultyStats[fId] = {
+                    name: f.facultyId.name,
+                    sum: 0,
+                    count: 0,
+                    questionStats: {}
+                };
+            }
             facultyStats[fId].sum += f.totalScore;
             facultyStats[fId].count++;
+
+            // Aggregate question scores for Faculty
+            if (f.responses && f.responses.length > 0) {
+                f.responses.forEach(r => {
+                    const qIndex = r.questionIndex;
+                    if (!facultyStats[fId].questionStats[qIndex]) {
+                        facultyStats[fId].questionStats[qIndex] = { sum: 0, count: 0 };
+                    }
+                    facultyStats[fId].questionStats[qIndex].sum += r.rating;
+                    facultyStats[fId].questionStats[qIndex].count++;
+                });
+            }
 
             // Subject
             const sId = f.subjectId._id.toString();
             if (!subjectStats[sId]) subjectStats[sId] = { name: f.subjectId.subjectName, sum: 0, count: 0 };
             subjectStats[sId].sum += f.totalScore;
             subjectStats[sId].count++;
-
-
         }
     });
 
-    const facultyReport = Object.values(facultyStats).map(s => ({ name: s.name, average: (s.sum / s.count).toFixed(2) }));
+    const facultyReport = Object.values(facultyStats).map(s => {
+        const questionScores = Object.entries(s.questionStats).map(([index, stats]) => ({
+            questionIndex: parseInt(index),
+            average: ((stats.sum / stats.count) * 20).toFixed(2),
+        })).sort((a, b) => a.questionIndex - b.questionIndex);
+
+        return {
+            name: s.name,
+            average: (s.sum / s.count).toFixed(2),
+            questions: questionScores
+        };
+    });
+
     const subjectReport = Object.values(subjectStats).map(s => ({ name: s.name, average: (s.sum / s.count).toFixed(2) }));
 
     return { completedCount, facultyReport, subjectReport };
@@ -91,7 +152,7 @@ const exportPDF = asyncHandler(async (req, res) => {
     const headerStartY = 170;
 
     // Title
-    doc.font('Helvetica-Bold').fontSize(24).text('AIML Department', 0, headerStartY, { align: 'center', width: 595.28 });
+    doc.font('Helvetica-Bold').fontSize(24).text('Department of AIML', 0, headerStartY, { align: 'center', width: 595.28 });
     doc.fontSize(20).text('Feedback Analysis Report', 0, headerStartY + 35, { align: 'center', width: 595.28 });
 
     // Info Box
@@ -222,7 +283,7 @@ const exportExcel = asyncHandler(async (req, res) => {
     const titleRow = startDataRow;
     sheet.mergeCells(`A${titleRow}:D${titleRow + 2}`);
     const titleCell = sheet.getCell(`A${titleRow}`);
-    titleCell.value = 'AIML Department\nFeedback Analysis Report';
+    titleCell.value = 'Department of AIML\nFeedback Analysis Report';
     titleCell.font = { name: 'Calibri', size: 20, bold: true, color: { argb: 'FF1e40af' } };
     titleCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
 
@@ -432,7 +493,7 @@ const exportWord = asyncHandler(async (req, res) => {
                 new Paragraph({
                     children: [
                         new TextRun({
-                            text: 'AIML Department',
+                            text: 'Department of AIML',
                             bold: true,
                             size: 48,
                             color: '1e40af',

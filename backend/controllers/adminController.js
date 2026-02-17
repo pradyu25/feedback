@@ -42,30 +42,34 @@ const uploadExcel = asyncHandler(async (req, res) => {
     if (sheetNames.includes('Students')) {
         const studentData = xlsx.utils.sheet_to_json(workbook.Sheets['Students']);
         for (const s of studentData) {
-            const updateOps = {
-                $set: {
+            // Check if student exists
+            const existingStudent = await Student.findOne({ rollId: s.rollId });
+
+            if (existingStudent) {
+                // Update existing
+                existingStudent.name = s.name;
+                existingStudent.year = s.year;
+                existingStudent.semester = s.semester;
+                existingStudent.section = s.section;
+                // We don't update password here as it is fixed to RollID logic
+                await existingStudent.save();
+            } else {
+                // Create new
+                // Password is required by schema, so we set it.
+                // Although login uses direct RollID check, we store a hash of RollID for consistency/fallback.
+                const salt = await bcrypt.genSalt(10);
+                const hashedPassword = await bcrypt.hash(s.rollId.toUpperCase(), salt);
+
+                await Student.create({
+                    rollId: s.rollId,
                     name: s.name,
                     year: s.year,
                     semester: s.semester,
-                    section: s.section
-                },
-                $setOnInsert: {}
-            };
-
-            if (s.password) {
-                const salt = await bcrypt.genSalt(10);
-                updateOps.$set.password = await bcrypt.hash(String(s.password), salt);
-            } else {
-                // Default password for new students only
-                const salt = await bcrypt.genSalt(10);
-                updateOps.$setOnInsert.password = await bcrypt.hash('1234', salt);
+                    section: s.section,
+                    password: hashedPassword, // Schema requires this
+                    department: s.department || 'AIML'
+                });
             }
-
-            await Student.findOneAndUpdate(
-                { rollId: s.rollId },
-                updateOps,
-                { upsert: true, new: true }
-            );
             results.students++;
         }
     }
