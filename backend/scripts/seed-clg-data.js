@@ -100,25 +100,38 @@ const seedData = async () => {
     }
 
     // 2. Parse Attendance Files (Students)
-    const attFiles = fs.readdirSync(dataDir).filter(f => f.includes('ATTENDANCE') && f.endsWith('.xlsx'));
+    // Match files starting with roman numerals (I, II, III, IV) and likely ending in .xls/.xlsx
+    const attFiles = fs.readdirSync(dataDir).filter(f => {
+        const name = f.toUpperCase();
+        return (name.startsWith('II') || name.startsWith('III') || name.startsWith('IV')) && (name.endsWith('.XLS') || name.endsWith('.XLSX'));
+    });
     const defaultPassword = '1234'; // Model pre-save hook will hash this
 
     for (const file of attFiles) {
         console.log(`Processing Attendance File: ${file}`);
         let year = 2;
-        if (file.includes('IV-II')) year = 4;
-        else if (file.includes('III-II')) year = 3;
-        else if (file.includes('II-II')) year = 2;
+        if (file.toUpperCase().includes('IV')) year = 4;
+        else if (file.toUpperCase().includes('III')) year = 3;
+        else if (file.toUpperCase().includes('II')) year = 2; // Be careful, III includes II, check order or exact match if needed. Actually 'II' is usually distinct enough if checked properly or if pattern is II-
+
+        // Better year detection based on start
+        if (file.startsWith('IV')) year = 4;
+        else if (file.startsWith('III')) year = 3;
+        else if (file.startsWith('II')) year = 2;
 
         const workbook = xlsx.readFile(path.join(dataDir, file));
 
         for (const sheetName of workbook.SheetNames) {
-            // Deduce Section from sheet name
+            // Deduce Section from filename if possible, otherwise sheet name
+            // Filename format: II-A.xls -> Year II, Section A
             let section = 'A';
-            if (sheetName.includes('C')) section = 'C';
-            else if (sheetName.includes('B')) section = 'B';
-            else if (sheetName.includes('A')) section = 'A';
-
+            const fileNameUpper = file.toUpperCase();
+            if (fileNameUpper.includes('-C')) section = 'C';
+            else if (fileNameUpper.includes('-B')) section = 'B';
+            else if (fileNameUpper.includes('-A')) section = 'A';
+            
+            // Fallback to sheet name if needed, but filename seems reliable for these
+            
             console.log(`Parsing Sheet: ${sheetName} -> Y${year} Sec ${section}`);
             const sheet = workbook.Sheets[sheetName];
             const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, range: 0 });
@@ -140,7 +153,7 @@ const seedData = async () => {
                                     rollId,
                                     name,
                                     year,
-                                    semester: 2, // Assuming II sem
+                                    semester: (year === 2 || year === 3 || year === 4) ? 2 : 1, // Defaulting to 2nd sem for now based on file names like -2-2
                                     section,
                                     password: defaultPassword,
                                     feedbackStatus: []

@@ -257,7 +257,7 @@ const AdminDashboard = () => {
                             </div>
                             <div>
                                 <h2 className="text-2xl font-black text-gray-900">Data Import</h2>
-                                <p className="text-gray-500">Upload Excel (.xlsx) file with Students, Faculty, and Subjects.</p>
+                                <p className="text-gray-500">Upload 'Alloc' files (Subjects/Faculty) or 'Attendance' files (Students). Also supports standard template.</p>
                             </div>
                         </div>
 

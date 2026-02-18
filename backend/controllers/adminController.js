@@ -7,6 +7,17 @@ const Question = require('../models/Question');
 const xlsx = require('xlsx');
 const bcrypt = require('bcryptjs');
 
+// Helper to parser Roman Numerals
+const romanToNum = (roman) => {
+    if (!roman) return null;
+    roman = roman.toString().trim().toUpperCase();
+    if (roman === 'I') return 1;
+    if (roman === 'II') return 2;
+    if (roman === 'III') return 3;
+    if (roman === 'IV') return 4;
+    return parseInt(roman) || null;
+};
+
 // @desc    Upload Excel data
 // @route   POST /api/admin/upload-excel
 // @access  Private (Admin)
@@ -18,6 +29,7 @@ const uploadExcel = asyncHandler(async (req, res) => {
 
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     const sheetNames = workbook.SheetNames;
+    const fileName = req.file.originalname;
 
     const results = {
         students: 0,
@@ -25,74 +37,185 @@ const uploadExcel = asyncHandler(async (req, res) => {
         subjects: 0,
     };
 
-    // Process Faculty first (dependencies)
-    if (sheetNames.includes('Faculty')) {
-        const facultyData = xlsx.utils.sheet_to_json(workbook.Sheets['Faculty']);
-        for (const f of facultyData) {
-            await Faculty.findOneAndUpdate(
-                { facultyId: f.facultyId },
-                { name: f.name, department: f.department },
-                { upsert: true, new: true }
-            );
-            results.faculty++;
-        }
-    }
+    // 1. Check for Alloc File (Subjects & Faculty)
+    if (fileName.toLowerCase().includes('alloc')) {
+        const sheet = workbook.Sheets[sheetNames[0]]; // Usually first sheet
+        const rows = xlsx.utils.sheet_to_json(sheet, { header: 'A', range: 0, limit: 100, defval: '' });
 
-    // Process Students
-    if (sheetNames.includes('Students')) {
-        const studentData = xlsx.utils.sheet_to_json(workbook.Sheets['Students']);
-        for (const s of studentData) {
-            // Check if student exists
-            const existingStudent = await Student.findOne({ rollId: s.rollId });
+        for (const row of rows) {
+            if (row.A && row.E && row.B && row.C) {
+                const subjectName = row.A.toString().trim();
+                const yearStr = row.B;
+                const semStr = row.C;
+                const section = row.D ? row.D.toString().trim() : 'A';
+                const facultyName = row.E.toString().trim();
 
-            if (existingStudent) {
-                // Update existing
-                existingStudent.name = s.name;
-                existingStudent.year = s.year;
-                existingStudent.semester = s.semester;
-                existingStudent.section = s.section;
-                // We don't update password here as it is fixed to RollID logic
-                await existingStudent.save();
-            } else {
-                // Create new
-                // Password is required by schema, so we set it.
-                // Although login uses direct RollID check, we store a hash of RollID for consistency/fallback.
-                const salt = await bcrypt.genSalt(10);
-                const hashedPassword = await bcrypt.hash(s.rollId.toUpperCase(), salt);
+                const year = romanToNum(yearStr);
+                const semester = romanToNum(semStr);
 
-                await Student.create({
-                    rollId: s.rollId,
-                    name: s.name,
-                    year: s.year,
-                    semester: s.semester,
-                    section: s.section,
-                    password: hashedPassword, // Schema requires this
-                    department: s.department || 'AIML'
-                });
+                if (year && semester && subjectName !== 'SUBJECT' && subjectName !== 'MOOCS') {
+                    // Upsert Faculty
+                    let faculty = await Faculty.findOne({ name: facultyName });
+                    if (!faculty) {
+                        faculty = await Faculty.create({
+                            facultyId: `F${Date.now()}${Math.floor(Math.random() * 1000)}`,
+                            name: facultyName,
+                            department: 'AIML'
+                        });
+                        results.faculty++;
+                    }
+
+                    // Upsert Subject
+                    const type = subjectName.toUpperCase().includes('LAB') ? 'lab' : 'theory';
+                    const subjectCode = `${subjectName.substring(0, 3).toUpperCase()}-${year}-${semester}-${section}`;
+
+                    await Subject.findOneAndUpdate(
+                        { subjectCode },
+                        {
+                            subjectName,
+                            type,
+                            year,
+                            semester,
+                            section,
+                            facultyId: faculty._id
+                        },
+                        { upsert: true }
+                    );
+                    results.subjects++;
+                }
             }
-            results.students++;
         }
     }
+    // 2. Check for Attendance/Student List File
+    else if (fileName.match(/^(II|III|IV)-.*\.xls/) || fileName.toUpperCase().includes('ATTENDANCE')) {
+        let year = 2;
+        if (fileName.toUpperCase().includes('IV')) year = 4;
+        else if (fileName.toUpperCase().includes('III')) year = 3;
+        else if (fileName.toUpperCase().includes('II')) year = 2;
 
-    // Process Subjects
-    if (sheetNames.includes('Subjects')) {
-        const subjectData = xlsx.utils.sheet_to_json(workbook.Sheets['Subjects']);
-        for (const sub of subjectData) {
-            const faculty = await Faculty.findOne({ facultyId: sub.facultyId });
-            if (faculty) {
-                await Subject.findOneAndUpdate(
-                    { subjectCode: sub.subjectCode },
-                    {
-                        subjectName: sub.subjectName,
-                        type: sub.type, // theory/lab
-                        year: sub.year,
-                        semester: sub.semester,
-                        section: sub.section,
-                        facultyId: faculty._id,
-                    },
+        const defaultPassword = '1234';
+
+        for (const sheetName of sheetNames) {
+            let section = 'A';
+            const fileNameUpper = fileName.toUpperCase();
+            if (fileNameUpper.includes('-C')) section = 'C';
+            else if (fileNameUpper.includes('-B')) section = 'B';
+            else if (fileNameUpper.includes('-A')) section = 'A';
+
+            const sheet = workbook.Sheets[sheetName];
+            const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, range: 0 });
+
+            for (const row of rows) {
+                if (row && row.length > 0) {
+                    const rollIdRaw = String(row[0]).trim();
+                    const match = rollIdRaw.match(/([0-9]+[A-Z][0-9]+[A-Z]?[A-Z0-9]+)/);
+
+                    if (match) {
+                        const rollId = match[0];
+                        const name = row[1] ? String(row[1]).trim() : `Student ${rollId}`;
+
+                        try {
+                            const exists = await Student.findOne({ rollId });
+                            if (!exists) {
+                                const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+                                await Student.create({
+                                    rollId,
+                                    name,
+                                    year,
+                                    semester: (year >= 2) ? 2 : 1,
+                                    section,
+                                    password: hashedPassword,
+                                    feedbackStatus: []
+                                });
+                                results.students++;
+                            } else {
+                                // Optional: Update existing student details if needed
+                                exists.name = name;
+                                exists.year = year;
+                                exists.semester = (year >= 2) ? 2 : 1;
+                                exists.section = section;
+                                await exists.save();
+                                // We don't increment results.students for updates to avoid confusion or we can add results.updatedStudents
+                            }
+                        } catch (err) {
+                            console.error(`Error processing student ${rollId}:`, err.message);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // 3. Fallback to standard sheet names
+    else {
+        // Process Faculty first (dependencies)
+        if (sheetNames.includes('Faculty')) {
+            const facultyData = xlsx.utils.sheet_to_json(workbook.Sheets['Faculty']);
+            for (const f of facultyData) {
+                await Faculty.findOneAndUpdate(
+                    { facultyId: f.facultyId },
+                    { name: f.name, department: f.department },
                     { upsert: true, new: true }
                 );
-                results.subjects++;
+                results.faculty++;
+            }
+        }
+
+        // Process Students
+        if (sheetNames.includes('Students')) {
+            const studentData = xlsx.utils.sheet_to_json(workbook.Sheets['Students']);
+            for (const s of studentData) {
+                // Check if student exists
+                const existingStudent = await Student.findOne({ rollId: s.rollId });
+
+                if (existingStudent) {
+                    // Update existing
+                    existingStudent.name = s.name;
+                    existingStudent.year = s.year;
+                    existingStudent.semester = s.semester;
+                    existingStudent.section = s.section;
+                    // We don't update password here as it is fixed to RollID logic
+                    await existingStudent.save();
+                } else {
+                    // Create new
+                    // Password is required by schema, so we set it.
+                    // Although login uses direct RollID check, we store a hash of RollID for consistency/fallback.
+                    const salt = await bcrypt.genSalt(10);
+                    const hashedPassword = await bcrypt.hash(s.rollId.toUpperCase(), salt);
+
+                    await Student.create({
+                        rollId: s.rollId,
+                        name: s.name,
+                        year: s.year,
+                        semester: s.semester,
+                        section: s.section,
+                        password: hashedPassword, // Schema requires this
+                        department: s.department || 'AIML'
+                    });
+                }
+                results.students++;
+            }
+        }
+
+        // Process Subjects
+        if (sheetNames.includes('Subjects')) {
+            const subjectData = xlsx.utils.sheet_to_json(workbook.Sheets['Subjects']);
+            for (const sub of subjectData) {
+                const faculty = await Faculty.findOne({ facultyId: sub.facultyId });
+                if (faculty) {
+                    await Subject.findOneAndUpdate(
+                        { subjectCode: sub.subjectCode },
+                        {
+                            subjectName: sub.subjectName,
+                            type: sub.type, // theory/lab
+                            year: sub.year,
+                            semester: sub.semester,
+                            section: sub.section,
+                            facultyId: faculty._id,
+                        },
+                        { upsert: true, new: true }
+                    );
+                    results.subjects++;
+                }
             }
         }
     }
