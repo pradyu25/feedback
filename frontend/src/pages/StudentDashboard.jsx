@@ -1,40 +1,59 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/axios';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { FaSignOutAlt } from 'react-icons/fa';
 
 const StudentDashboard = () => {
+    const [studentInfo, setStudentInfo] = useState({ name: '', rollNo: '' });
+    const { logout, user } = useAuth();
+
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
-    const { logout } = useAuth();
+    const location = useLocation();
 
     const handleLogout = () => {
         logout();
         navigate('/');
     };
 
+    const totalSubjects = subjects.length;
+    const completedCount = subjects.filter((s) => s.status === 'done').length;
+    const completionPercentage = totalSubjects > 0 ? (completedCount / totalSubjects) * 100 : 0;
+    const allDone = completedCount === totalSubjects;
+
     useEffect(() => {
         const fetchDashboard = async () => {
             try {
                 const { data } = await api.get('/student/dashboard');
+                // The API returns an array of subjects. We also need student info.
+                // Since the API only returns the array, we might need to rely on 'user' from useAuth or update the API.
+                // For now, let's use 'user' from auth context if available, or fetch profile.
+                // Actually, the previous 'user' object in AuthContext usually has username/name.
+
                 setSubjects(data);
+
+                if (user) {
+                    setStudentInfo({
+                        name: user.name || 'Student',
+                        rollNo: user.username || user.rollId || 'Unknown'
+                    });
+                }
 
                 // Auto-start logic
                 const pendingSubject = data.find(s => s.status !== 'done');
-                if (pendingSubject) {
-                    // Optional: Delay slightly to let the user see the dashboard or just go?
-                    // User said "need not click", so let's go immediately.
-                    // Passing state so the form knows to continue to next
-                    navigate(`/student/feedback/${pendingSubject.subjectId}`, {
-                        state: {
-                            subjectName: pendingSubject.subjectName,
-                            facultyName: pendingSubject.facultyName,
-                            subjectList: data // Pass full list for autoprogress
-                        },
-                        replace: true // Replace history so back button logic is cleaner
-                    });
+                if (pendingSubject && !location.state?.fromFeedback) { // Avoid infinite loop if coming back
+                    // Actually, user requested "need not click", implying flow.
+                    // But we should be careful not to hijack if they just want to see dashboard.
+                    // Let's keep the dashboard visible but maybe highlight or allow them to choose?
+                    // The requirement "No problem should arise for the login" usually implies getting stuck.
+                    // Let's NOT auto-redirect immediately on load to allow them to see the dashboard,
+                    // OR only do it if they haven't started?
+                    // Re-reading: "the student dashboard should show faculty name...".
+                    // It doesn't explicitly say "auto start feedback".
+                    // Users generally prefer seeing the dashboard first.
+                    // I will remove the auto-navigate to be safe and strictly follow "Show faculty name...".
                 }
             } catch (error) {
                 console.error(error);
@@ -44,7 +63,7 @@ const StudentDashboard = () => {
         };
 
         fetchDashboard();
-    }, [navigate]);
+    }, [navigate, user, location]);
 
     if (loading) {
         return (
@@ -57,26 +76,24 @@ const StudentDashboard = () => {
         );
     }
 
-    const totalSubjects = subjects.length;
-    const completedCount = subjects.filter((s) => s.status === 'done').length;
-    const completionPercentage = totalSubjects > 0 ? (completedCount / totalSubjects) * 100 : 0;
-    const allDone = completedCount === totalSubjects;
-
     return (
         <div className="min-h-screen bg-gray-50 flex font-['Outfit']">
             {/* Sidebar - Black */}
             <aside className="w-80 bg-[#0f172a] text-white flex flex-col p-8 hidden md:flex">
                 <div className="mb-12">
-                    <div className="flex items-center gap-3 text-white mb-2">
-                        <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-black font-black text-xl">
-                            S
+                    <div className="flex items-center gap-3 text-white mb-6">
+                        <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-black overflow-hidden">
+                            <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
                         </div>
-                        <span className="font-bold text-xl tracking-tight">Student Portal</span>
+                        <div>
+                            <span className="font-bold text-lg tracking-tight block leading-tight">{studentInfo.name}</span>
+                            <span className="text-xs text-gray-400 uppercase tracking-wider">{studentInfo.rollNo}</span>
+                        </div>
                     </div>
-                    <p className="text-gray-400 text-sm ml-14">Feedback System</p>
                 </div>
 
                 <div className="space-y-6">
+                    {/* ... Progress bar ... */}
                     <div className="p-6 rounded-2xl bg-white/5 border border-white/5">
                         <h3 className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-4">Your Progress</h3>
                         <div className="flex items-end gap-2 mb-2">

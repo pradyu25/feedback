@@ -109,62 +109,120 @@ const seedData = async () => {
 
     for (const file of attFiles) {
         console.log(`Processing Attendance File: ${file}`);
-        let year = 2;
-        if (file.toUpperCase().includes('IV')) year = 4;
-        else if (file.toUpperCase().includes('III')) year = 3;
-        else if (file.toUpperCase().includes('II')) year = 2; // Be careful, III includes II, check order or exact match if needed. Actually 'II' is usually distinct enough if checked properly or if pattern is II-
 
-        // Better year detection based on start
-        if (file.startsWith('IV')) year = 4;
-        else if (file.startsWith('III')) year = 3;
-        else if (file.startsWith('II')) year = 2;
+        let year = 2; // Default
+        if (file.toUpperCase().startsWith('IV')) year = 4;
+        else if (file.toUpperCase().startsWith('III')) year = 3;
+        else if (file.toUpperCase().startsWith('II')) year = 2;
 
-        const workbook = xlsx.readFile(path.join(dataDir, file));
+        try {
+            // Use readFileSync to handle potential path/character issues robustly
+            const buffer = fs.readFileSync(path.join(dataDir, file));
+            const workbook = xlsx.read(buffer, { type: 'buffer' });
 
-        for (const sheetName of workbook.SheetNames) {
-            // Deduce Section from filename if possible, otherwise sheet name
-            // Filename format: II-A.xls -> Year II, Section A
-            let section = 'A';
-            const fileNameUpper = file.toUpperCase();
-            if (fileNameUpper.includes('-C')) section = 'C';
-            else if (fileNameUpper.includes('-B')) section = 'B';
-            else if (fileNameUpper.includes('-A')) section = 'A';
-            
-            // Fallback to sheet name if needed, but filename seems reliable for these
-            
-            console.log(`Parsing Sheet: ${sheetName} -> Y${year} Sec ${section}`);
-            const sheet = workbook.Sheets[sheetName];
-            const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, range: 0 });
+            for (const sheetName of workbook.SheetNames) {
+                // Determine section from filename or sheet name
+                // Filename precedence
+                let section = 'A';
+                const fUpper = file.toUpperCase();
 
-            for (const row of rows) {
-                if (row && row.length > 0) {
-                    const rollIdRaw = String(row[0]).trim();
-                    // Match pattern: digits + letter + digits
-                    const match = rollIdRaw.match(/([0-9]+[A-Z][0-9]+[A-Z]?[A-Z0-9]+)/);
+                // Allow for mulitple sections in one file (handled by sheet-level logic if needed, 
+                // but currently files seem to be per-section or combined)
+                // If combined (e.g. "A & B"), we might need logic inside the sheet loop or assume sheets map to sections.
+                // However, based on file list: "II-A.xls" (Specific), "II-II ... A & B ..." (Combined).
+                // If it's a combined file, usually sheets are named "II-II A", "II-II B".
 
-                    if (match) {
-                        const rollId = match[0];
-                        const name = row[1] ? String(row[1]).trim() : `Student ${rollId}`;
+                // Simple heuristic for section from Sheet Name if possible
+                const sUpper = sheetName.toUpperCase();
+                if (sUpper.includes('SEC-C') || sUpper.endsWith(' C') || sUpper.includes('-C')) section = 'C';
+                else if (sUpper.includes('SEC-B') || sUpper.endsWith(' B') || sUpper.includes('-B')) section = 'B';
+                else if (sUpper.includes('SEC-A') || sUpper.endsWith(' A') || sUpper.includes('-A')) section = 'A';
+                else {
+                    // Fallback to filename
+                    if (fUpper.includes('-C')) section = 'C';
+                    else if (fUpper.includes('-B')) section = 'B';
+                    else section = 'A';
+                }
 
-                        try {
-                            const exists = await Student.findOne({ rollId });
-                            if (!exists) {
-                                await Student.create({
-                                    rollId,
-                                    name,
-                                    year,
-                                    semester: (year === 2 || year === 3 || year === 4) ? 2 : 1, // Defaulting to 2nd sem for now based on file names like -2-2
-                                    section,
-                                    password: defaultPassword,
-                                    feedbackStatus: []
-                                });
+                console.log(`Parsing Sheet: ${sheetName} -> Y${year} Sec ${section}`);
+                const sheet = workbook.Sheets[sheetName];
+                const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, range: 0 });
+
+                let percentageColIndex = 5; // Default for these known XLS files
+                let headerFound = false;
+
+                for (const row of rows) {
+                    if (!row || row.length === 0) continue;
+
+                    // Check for header row
+                    if (!headerFound) {
+                        const headerIndex = row.findIndex(cell =>
+                            cell && String(cell).toLowerCase().includes('percentage')
+                        );
+                        if (headerIndex !== -1) {
+                            percentageColIndex = headerIndex;
+                            headerFound = true;
+                            console.log(`Found Percentage column at index ${percentageColIndex}`);
+                            continue; // Skip header row
+                        }
+
+                        // Also check for "Total Held" etc to ensure we aren't misidentifying data as header if header is missing
+                        // But usually header comes before data.
+
+                        // If we see a RollID, assume we passed headers or they are missing.
+                    }
+
+                    // Locate Roll ID Code
+                    const rollPat = /([0-9]+[A-Z][0-9]+[A-Z]?[A-Z0-9]+)/;
+                    let rollIndex = -1;
+
+                    if (row[1] && String(row[1]).match(rollPat)) rollIndex = 1;
+                    else if (row[0] && String(row[0]).match(rollPat)) rollIndex = 0;
+
+                    if (rollIndex !== -1) {
+                        const rollIdRaw = String(row[rollIndex]).trim();
+                        const match = rollIdRaw.match(rollPat);
+
+                        if (match) {
+                            const rollId = match[0];
+                            const name = row[rollIndex + 1] ? String(row[rollIndex + 1]).trim() : `Student ${rollId}`;
+
+                            let attendancePercentage = 0;
+                            // Use detected or default index
+                            if (row[percentageColIndex] !== undefined) {
+                                attendancePercentage = parseFloat(row[percentageColIndex]);
+                                if (isNaN(attendancePercentage)) attendancePercentage = 0;
+                            } else {
+                                // Fallback: try index 3 (legacy) if index 5 is undefined
+                                if (row[3] !== undefined && percentageColIndex === 5) { // Only fallback if we used default
+                                    // But index 3 is explicitly TotalHeld in these files.
+                                    // Better to stick to 0 if missing.
+                                }
                             }
-                        } catch (err) {
-                            console.error(`Error adding student ${rollId}:`, err.message);
+
+                            try {
+                                const exists = await Student.findOne({ rollId });
+                                if (!exists) {
+                                    await Student.create({
+                                        rollId,
+                                        name,
+                                        year,
+                                        semester: (year === 2 || year === 3 || year === 4) ? 2 : 1,
+                                        section,
+                                        password: defaultPassword,
+                                        attendancePercentage,
+                                        feedbackStatus: []
+                                    });
+                                }
+                            } catch (err) {
+                                console.error(`Error adding student ${rollId}:`, err.message);
+                            }
                         }
                     }
                 }
             }
+        } catch (fileErr) {
+            console.error(`Failed to read file ${file}:`, fileErr.message);
         }
     }
 

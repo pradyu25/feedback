@@ -39,12 +39,21 @@ const calculateAnalytics = async (query) => {
     });
 
     let completedCount = 0;
+    const pendingStudents = [];
+
     students.forEach(s => {
         const required = sectionSubjectCount[s.section] || 0;
         const actual = studentFeedbackCount[s._id.toString()] || 0;
         // If there are required subjects and student has done >= required, count as 1
         if (required > 0 && actual >= required) {
             completedCount++;
+        } else {
+            pendingStudents.push({
+                rollId: s.rollId,
+                name: s.name,
+                completed: actual,
+                required: required
+            });
         }
     });
 
@@ -102,7 +111,7 @@ const calculateAnalytics = async (query) => {
 
     const subjectReport = Object.values(subjectStats).map(s => ({ name: s.name, average: (s.sum / s.count).toFixed(2) }));
 
-    return { completedCount, facultyReport, subjectReport };
+    return { completedCount, facultyReport, subjectReport, pendingStudents };
 };
 
 
@@ -123,6 +132,7 @@ const getAnalytics = asyncHandler(async (req, res) => {
         notSubmittedCount: totalStudents - analytics.completedCount,
         facultyReport: analytics.facultyReport,
         subjectReport: analytics.subjectReport,
+        pendingStudents: analytics.pendingStudents,
     });
 });
 
@@ -142,7 +152,7 @@ const exportPDF = asyncHandler(async (req, res) => {
     doc.pipe(res);
 
     // Add Logo Banner (Full Width)
-    const logoPath = path.join(__dirname, '..', 'logo.jpg');
+    const logoPath = path.join(__dirname, '..', 'logo.png');
     if (fs.existsSync(logoPath)) {
         // A4 width ~595.28 points
         doc.image(logoPath, 0, 0, { width: 595.28, height: 150 });
@@ -265,13 +275,13 @@ const exportExcel = asyncHandler(async (req, res) => {
     });
 
     // Add Logo (Covering Columns A-D, Rows 1-5)
-    const logoPath = path.join(__dirname, '..', 'logo.jpg');
+    const logoPath = path.join(__dirname, '..', 'logo.png');
     const startDataRow = 7; // Shift content down
 
     if (fs.existsSync(logoPath)) {
         const logoId = workbook.addImage({
             filename: logoPath,
-            extension: 'jpeg',
+            extension: 'png',
         });
         sheet.addImage(logoId, {
             tl: { col: 0, row: 0 },

@@ -36,7 +36,9 @@ const Layout = () => {
                     <div className="flex justify-between items-center">
                         {/* Logo & Brand */}
                         <div className="flex items-center gap-4">
-                            <div className="text-3xl">{config.icon}</div>
+                            <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-black overflow-hidden relative">
+                                <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
+                            </div>
                             <div>
                                 <h1 className={`text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r ${config.gradient}`}>
                                     Feedback System

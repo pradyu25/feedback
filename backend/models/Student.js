@@ -25,6 +25,10 @@ const studentSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    attendancePercentage: {
+        type: Number,
+        default: 0
+    },
     department: {
         type: String,
         default: 'AIML'

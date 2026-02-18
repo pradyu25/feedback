@@ -99,12 +99,63 @@ const HodDashboard = () => {
         { id: 'overview', name: 'Overview', icon: <FaChartPie /> },
         { id: 'faculty', name: 'Faculty Wise', icon: <FaChalkboardTeacher /> },
         { id: 'subject', name: 'Subject Wise', icon: <FaBook /> },
+        { id: 'pending', name: 'Pending Submissions', icon: <FaLayerGroup /> },
     ];
 
     const renderView = () => {
         if (!analytics) return null;
 
         switch (activeView) {
+            case 'pending':
+                return (
+                    <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 overflow-hidden">
+                        <div className="p-8 border-b border-gray-100 flex justify-between items-center">
+                            <div>
+                                <h2 className="text-2xl font-black text-gray-900">Pending Submissions</h2>
+                                <p className="text-gray-500">Students who have not yet completed all feedback.</p>
+                            </div>
+                            <div className="bg-red-50 text-red-600 px-4 py-2 rounded-lg font-bold">
+                                Count: {analytics.pendingStudents?.length || 0}
+                            </div>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-gray-50 text-gray-400 text-[10px] uppercase font-black tracking-widest">
+                                    <tr>
+                                        <th className="px-8 py-4">Roll ID</th>
+                                        <th className="px-8 py-4">Student Name</th>
+                                        <th className="px-8 py-4 text-center">Progress</th>
+                                        <th className="px-8 py-4 text-center">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {(analytics.pendingStudents || []).map((s, idx) => (
+                                        <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                                            <td className="px-8 py-6 font-bold text-gray-900">{s.rollId}</td>
+                                            <td className="px-8 py-6 text-gray-600">{s.name}</td>
+                                            <td className="px-8 py-6 text-center font-bold">
+                                                {s.completed} / {s.required}
+                                            </td>
+                                            <td className="px-8 py-6 text-center">
+                                                <span className="inline-block px-3 py-1 rounded-lg text-sm font-bold bg-orange-100 text-orange-700">
+                                                    Pending
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {(!analytics.pendingStudents || analytics.pendingStudents.length === 0) && (
+                                        <tr>
+                                            <td colSpan="4" className="px-8 py-12 text-center text-gray-400 font-medium">
+                                                All students have submitted their feedback! 🎉
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                );
+
             case 'faculty':
                 return (
                     <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 overflow-hidden">
@@ -258,9 +309,9 @@ const HodDashboard = () => {
             {/* Sidebar */}
             <aside className="w-72 bg-[#0f172a] text-white flex flex-col z-20">
                 <div className="p-8">
-                    <div className="flex items-center gap-3 mb-10">
-                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-black text-xl font-black">
-                            A
+                    <div className="flex items-center gap-3 mb-10 text-white">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-black overflow-hidden">
+                            <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
                         </div>
                         <h2 className="text-xl font-bold tracking-tight">AIML CORE</h2>
                     </div>

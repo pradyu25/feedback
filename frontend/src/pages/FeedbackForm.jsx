@@ -101,7 +101,7 @@ const FeedbackForm = () => {
                 });
             } else {
                 // All done
-                navigate('/student/dashboard');
+                navigate('/student/dashboard', { state: { fromFeedback: true } });
             }
         } catch (err) {
             console.error(err);
@@ -186,7 +186,7 @@ const FeedbackForm = () => {
                 {/* Actions */}
                 <div className="mt-12 flex items-center justify-between bg-white p-6 rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100">
                     <button
-                        onClick={() => navigate('/student/dashboard')}
+                        onClick={() => navigate('/student/dashboard', { state: { fromFeedback: true } })}
                         className="px-8 py-4 rounded-xl font-bold text-gray-500 hover:text-black hover:bg-gray-50 transition-colors"
                     >
                         Cancel

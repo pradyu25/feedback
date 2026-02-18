@@ -36,9 +36,12 @@ const authUser = asyncHandler(async (req, res) => {
 
     if (user) {
         if (role === 'student') {
-            // Password must be uppercase User ID (Case Insensitive Login ID -> Uppercase Password)
-            console.log(`Auth Debug: Student Login Attempt - User: ${user.rollId}, InputPass: ${password}, Expected: ${user.rollId.toUpperCase()}`);
-            if (password === user.rollId.toUpperCase()) {
+            // Check formatted password (if we want to enforce case sensitivity strictly here we can, 
+            // but matchPassword handles the hash comparison of the exact string passed)
+            if (await user.matchPassword(password)) {
+                passwordMatch = true;
+            } else if (password.toUpperCase() === user.rollId.toUpperCase()) {
+                // Fallback: Allow login with Roll ID (legacy/convenience)
                 passwordMatch = true;
             }
         } else {
