@@ -126,7 +126,61 @@ const calculateAnalytics = async (query) => {
 
     const subjectReport = Object.values(subjectStats).map(s => ({ name: s.name, average: (s.sum / s.count).toFixed(2) }));
 
-    return { completedCount, facultyReport, subjectReport, pendingStudents };
+    const detailedReport = { theory: [], lab: [] };
+
+    subjects.forEach(s => {
+        const sId = s._id.toString();
+        const subjectFeedbacks = feedbacks.filter(f => f.subjectId._id.toString() === sId && f.isCompleted);
+
+        if (subjectFeedbacks.length > 0) {
+            let sumTotalScore = 0;
+            let count = 0;
+            const paramStats = {};
+
+            subjectFeedbacks.forEach(f => {
+                sumTotalScore += f.totalScore;
+                count++;
+                if (f.responses) {
+                    f.responses.forEach(r => {
+                        const idx = r.questionIndex;
+                        if (!paramStats[idx]) paramStats[idx] = { sum: 0, count: 0 };
+                        paramStats[idx].sum += r.rating;
+                        paramStats[idx].count++;
+                    });
+                }
+            });
+
+            // Dynamically find max parameters or fallback to 10 for theory / 8 for lab
+            const maxIdx = Math.max(...Object.keys(paramStats).map(Number));
+            const numParams = maxIdx >= 0 ? maxIdx + 1 : (s.type === 'theory' ? 10 : 8);
+            const params = [];
+
+            for (let i = 0; i < numParams; i++) {
+                if (paramStats[i] && paramStats[i].count > 0) {
+                    params.push(((paramStats[i].sum / paramStats[i].count) * 20).toFixed(1)); // e.g. 79.7
+                } else {
+                    params.push('-');
+                }
+            }
+
+            const facultyName = subjectFeedbacks[0].facultyId?.name || 'Unknown';
+            const subjectNameWithFaculty = `${s.subjectName}-(${facultyName})`;
+
+            const reportRow = {
+                subjectName: subjectNameWithFaculty,
+                params: params,
+                average: (sumTotalScore / count).toFixed(2),
+            };
+
+            if (s.type === 'theory') {
+                detailedReport.theory.push(reportRow);
+            } else {
+                detailedReport.lab.push(reportRow);
+            }
+        }
+    });
+
+    return { completedCount, facultyReport, subjectReport, pendingStudents, detailedReport };
 };
 
 
@@ -252,69 +306,87 @@ const exportPDF = asyncHandler(async (req, res) => {
 
         let yPosition = infoBoxY + 120;
 
-        // Faculty Performance Section
-        doc.fontSize(16).font('Helvetica-Bold').fillColor('#1e40af').text('Faculty Performance Analysis', 50, yPosition);
-        doc.moveTo(50, yPosition + 20).lineTo(545, yPosition + 20).stroke('#1e40af');
-        yPosition += 40;
+        // Draw Function
+        const drawGrid = (title, dataList, isTheory) => {
+            if (!dataList || dataList.length === 0) return;
 
-        analytics.facultyReport.forEach((f, index) => {
-            const score = parseFloat(f.average);
-            const color = score >= 90 ? '#16a34a' : score >= 75 ? '#2563eb' : '#ea580c';
-
-            doc.fontSize(11)
-                .font('Helvetica')
-                .fillColor('#000')
-                .text(`${index + 1}. ${f.name}`, 70, yPosition);
-
-            doc.fontSize(11)
-                .font('Helvetica-Bold')
-                .fillColor(color)
-                .text(`${f.average}%`, 450, yPosition);
-
+            doc.fontSize(14).font('Helvetica-Bold').fillColor('#000').text(title, 0, yPosition, { align: 'center', width: 595.28 });
             yPosition += 25;
 
-            // Add new page if needed
-            if (yPosition > 700) {
-                doc.addPage();
-                yPosition = 50;
-                // Re-add logo on new pages if desired? For now, keep simple.
-            }
-        });
+            const cwSNO = 30;
+            const cwSubj = 150;
+            const numParams = isTheory ? 10 : 8;
+            const cwParam = 24;
+            const cwTotal = 60;
+            const rowHeight = 25;
 
-        doc.moveDown(2);
-        yPosition += 30;
+            const tableWidth = cwSNO + cwSubj + (numParams * cwParam) + cwTotal;
+            const startX = (595.28 - tableWidth) / 2;
 
-        // Subject Performance Section
-        if (yPosition > 650) {
-            doc.addPage();
-            yPosition = 50;
-        }
+            const drawRow = (rowObj, isHeader = false) => {
+                let x = startX;
+                doc.fillColor('#000');
+                if (isHeader) {
+                    doc.fontSize(8).font('Helvetica-Bold');
+                } else {
+                    doc.fontSize(9).font('Helvetica');
+                }
 
-        doc.fontSize(16).font('Helvetica-Bold').fillColor('#7c3aed').text('Subject Performance Analysis', 50, yPosition);
-        doc.moveTo(50, yPosition + 20).lineTo(545, yPosition + 20).stroke('#7c3aed');
+                // SNO
+                doc.rect(x, yPosition, cwSNO, rowHeight).stroke('#333');
+                doc.text(rowObj[0], x, yPosition + 8, { width: cwSNO, align: 'center' });
+                x += cwSNO;
+
+                // Subject Name
+                doc.rect(x, yPosition, cwSubj, rowHeight).stroke('#333');
+                doc.text(rowObj[1], x + 5, yPosition + 8, { width: cwSubj - 10, align: 'left', lineBreak: false });
+                x += cwSubj;
+
+                // Params
+                for (let i = 0; i < numParams; i++) {
+                    doc.rect(x, yPosition, cwParam, rowHeight).stroke('#333');
+                    doc.text(rowObj[2 + i], x, yPosition + 8, { width: cwParam, align: 'center' });
+                    x += cwParam;
+                }
+
+                // Total
+                doc.rect(x, yPosition, cwTotal, rowHeight).stroke('#333');
+                doc.text(rowObj[2 + numParams], x, yPosition + 8, { width: cwTotal, align: 'center' });
+
+                yPosition += rowHeight;
+            };
+
+            // Table Header
+            const headers = ['SNO', isTheory ? 'SUBJECT NAME' : 'LAB SUBJECT NAME'];
+            for (let i = 1; i <= numParams; i++) headers.push(`P${i}`);
+            headers.push('FEEDBACK (%)');
+
+            drawRow(headers, true);
+
+            dataList.forEach((row, idx) => {
+                if (yPosition + rowHeight > 750) {
+                    doc.addPage();
+                    yPosition = 50;
+                    drawRow(headers, true);
+                }
+                const rowObj = [(idx + 1).toString(), row.subjectName, ...row.params.slice(0, numParams), `${row.average}%`];
+                drawRow(rowObj);
+            });
+
+            yPosition += 40;
+        };
+
+        const yearLabel = year === 2 ? 'II' : year === 3 ? 'III' : 'IV';
+        const semLabel = semester === 1 ? 'I' : 'II';
+        const basePath = `2025-26 - AIML - ${yearLabel} - ${semLabel} - ${currentSection}`;
+
+        doc.fontSize(20).font('Helvetica-Bold').fillColor('#000').text('FEEDBACK SYSTEM', 0, yPosition, { align: 'center', width: 595.28 });
         yPosition += 40;
 
-        analytics.subjectReport.forEach((s, index) => {
-            const score = parseFloat(s.average);
-            const color = score >= 90 ? '#16a34a' : score >= 75 ? '#2563eb' : '#ea580c';
+        drawGrid(`${basePath} - (Theory) FEED BACK - II`, analytics.detailedReport?.theory || [], true);
 
-            doc.fontSize(11)
-                .font('Helvetica')
-                .fillColor('#000')
-                .text(`${index + 1}. ${s.name}`, 70, yPosition);
-
-            doc.fontSize(11)
-                .font('Helvetica-Bold')
-                .fillColor(color)
-                .text(`${s.average}%`, 450, yPosition);
-
-            yPosition += 25;
-
-            if (yPosition > 700) {
-                doc.addPage();
-                yPosition = 50;
-            }
-        });
+        if (yPosition + 100 > 750) { doc.addPage(); yPosition = 50; }
+        drawGrid(`${basePath} - (Laboratory) FEED BACK - II`, analytics.detailedReport?.lab || [], false);
 
     } // end sectionsToExport loop
 
@@ -405,139 +477,75 @@ const exportExcel = asyncHandler(async (req, res) => {
             fgColor: { argb: 'FFe5e7eb' }
         };
 
-        // Faculty Performance Section (Shifted)
-        const facultyHeaderRow = infoRow + 2;
-        sheet.getRow(facultyHeaderRow).height = 25;
-        sheet.mergeCells(`A${facultyHeaderRow}:D${facultyHeaderRow}`);
-        const facultyHeader = sheet.getCell(`A${facultyHeaderRow}`);
-        facultyHeader.value = 'Faculty Performance Analysis';
-        facultyHeader.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
-        facultyHeader.alignment = { vertical: 'middle', horizontal: 'center' };
-        facultyHeader.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FF1e40af' }
+        // Build Grid Function for Excel
+        let currentRow = infoRow + 2;
+
+        const buildExcelGrid = (title, dataList, isTheory) => {
+            if (!dataList || dataList.length === 0) return;
+
+            // Title Row
+            sheet.getRow(currentRow).height = 25;
+            const numParams = isTheory ? 10 : 8;
+            const lastColChar = String.fromCharCode(65 + 2 + numParams); // e.g. 10 params -> A+2+10 = M (actually A+2(col C)+10(P10)=M)
+            // A=0, B=1, ... wait: col 1=A, col 2=B, col 3=C...
+            // SNO(1), Subject(2), P1-P10(3-12), Total(13). 13 is 'M'.
+            const lastColIndex = 2 + numParams + 1;
+            const mergeCode = `A${currentRow}:${String.fromCharCode(64 + lastColIndex)}${currentRow}`;
+
+            sheet.mergeCells(mergeCode);
+            const titleHeader = sheet.getCell(`A${currentRow}`);
+            titleHeader.value = title;
+            titleHeader.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
+            titleHeader.alignment = { vertical: 'middle', horizontal: 'center' };
+            titleHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFe5e7eb' } };
+
+            currentRow++;
+
+            // Headers
+            sheet.getRow(currentRow).height = 20;
+            const headers = ['S.No', isTheory ? 'SUBJECT NAME' : 'LAB SUBJECT NAME'];
+            for (let i = 1; i <= numParams; i++) headers.push(`P${i}`);
+            headers.push('FEEDBACK (%)');
+
+            headers.forEach((header, index) => {
+                const cell = sheet.getCell(currentRow, index + 1);
+                cell.value = header;
+                cell.font = { name: 'Calibri', size: 11, bold: true };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFd1d5db' } };
+                cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+            });
+
+            currentRow++;
+
+            // Data Rows
+            dataList.forEach((row, index) => {
+                const rowObj = [index + 1, row.subjectName, ...row.params.slice(0, numParams), `${row.average}%`];
+                sheet.getRow(currentRow).values = rowObj;
+
+                for (let col = 1; col <= headers.length; col++) {
+                    const cell = sheet.getCell(currentRow, col);
+                    cell.font = { name: 'Calibri', size: 10 };
+                    cell.alignment = { vertical: 'middle', horizontal: col === 2 ? 'left' : 'center' };
+                    cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+                }
+                currentRow++;
+            });
+
+            currentRow += 2;
         };
 
-        // Faculty Table Headers
-        const facultyTableHeadersRow = facultyHeaderRow + 1;
-        sheet.getRow(facultyTableHeadersRow).height = 20;
-        const facultyTableHeaders = ['S.No', 'Faculty Name', 'Average Score (%)', 'Rating'];
-        facultyTableHeaders.forEach((header, index) => {
-            const cell = sheet.getCell(facultyTableHeadersRow, index + 1);
-            cell.value = header;
-            cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-            cell.alignment = { vertical: 'middle', horizontal: 'center' };
-            cell.fill = {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'FF3b82f6' }
-            };
-            cell.border = {
-                top: { style: 'thin' },
-                left: { style: 'thin' },
-                bottom: { style: 'thin' },
-                right: { style: 'thin' }
-            };
-        });
+        const yearLabel = year === 2 ? 'II' : year === 3 ? 'III' : 'IV';
+        const semLabel = semester === 1 ? 'I' : 'II';
+        const basePath = `2025-26 - AIML - ${yearLabel} - ${semLabel} - ${currentSection}`;
 
-        // Faculty Data
-        let currentRow = facultyTableHeadersRow + 1;
-        analytics.facultyReport.forEach((f, index) => {
-            const score = parseFloat(f.average);
-            const rating = score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : 'Average';
-            const scoreColor = score >= 90 ? 'FF16a34a' : score >= 75 ? 'FF2563eb' : 'FFea580c';
+        buildExcelGrid(`${basePath} - (Theory) FEED BACK - II`, analytics.detailedReport?.theory || [], true);
+        buildExcelGrid(`${basePath} - (Laboratory) FEED BACK - II`, analytics.detailedReport?.lab || [], false);
 
-            sheet.getRow(currentRow).values = [index + 1, f.name, f.average, rating];
-
-            // Style each cell
-            for (let col = 1; col <= 4; col++) {
-                const cell = sheet.getCell(currentRow, col);
-                cell.font = { name: 'Calibri', size: 10 };
-                cell.alignment = { vertical: 'middle', horizontal: col === 2 ? 'left' : 'center' };
-                cell.border = {
-                    top: { style: 'thin' },
-                    left: { style: 'thin' },
-                    bottom: { style: 'thin' },
-                    right: { style: 'thin' }
-                };
-
-                // Color code the score and rating
-                if (col === 3 || col === 4) {
-                    cell.font = { ...cell.font, bold: true, color: { argb: scoreColor } };
-                }
-            }
-            currentRow++;
-        });
-
-        // Subject Performance Section
-        currentRow += 2;
-        sheet.getRow(currentRow).height = 25;
-        sheet.mergeCells(`A${currentRow}:D${currentRow}`);
-        const subjectHeader = sheet.getCell(`A${currentRow}`);
-        subjectHeader.value = 'Subject Performance Analysis';
-        subjectHeader.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
-        subjectHeader.alignment = { vertical: 'middle', horizontal: 'center' };
-        subjectHeader.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FF7c3aed' }
-        };
-
-        // Subject Table Headers
-        currentRow++;
-        sheet.getRow(currentRow).height = 20;
-        const subjectTableHeaders = ['S.No', 'Subject Name', 'Average Score (%)', 'Rating'];
-        subjectTableHeaders.forEach((header, index) => {
-            const cell = sheet.getCell(currentRow, index + 1);
-            cell.value = header;
-            cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-            cell.alignment = { vertical: 'middle', horizontal: 'center' };
-            cell.fill = {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'FF9333ea' }
-            };
-            cell.border = {
-                top: { style: 'thin' },
-                left: { style: 'thin' },
-                bottom: { style: 'thin' },
-                right: { style: 'thin' }
-            };
-        });
-
-        // Subject Data
-        currentRow++;
-        analytics.subjectReport.forEach((s, index) => {
-            const score = parseFloat(s.average);
-            const rating = score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : 'Average';
-            const scoreColor = score >= 90 ? 'FF16a34a' : score >= 75 ? 'FF2563eb' : 'FFea580c';
-
-            sheet.getRow(currentRow).values = [index + 1, s.name, s.average, rating];
-
-            for (let col = 1; col <= 4; col++) {
-                const cell = sheet.getCell(currentRow, col);
-                cell.font = { name: 'Calibri', size: 10 };
-                cell.alignment = { vertical: 'middle', horizontal: col === 2 ? 'left' : 'center' };
-                cell.border = {
-                    top: { style: 'thin' },
-                    left: { style: 'thin' },
-                    bottom: { style: 'thin' },
-                    right: { style: 'thin' }
-                };
-
-                if (col === 3 || col === 4) {
-                    cell.font = { ...cell.font, bold: true, color: { argb: scoreColor } };
-                }
-            }
-            currentRow++;
-        });
-
-        // Set column widths
+        // Adjust column widths
         sheet.getColumn(1).width = 8;
-        sheet.getColumn(2).width = 35;
-        sheet.getColumn(3).width = 20;
-        sheet.getColumn(4).width = 15;
+        sheet.getColumn(2).width = 40;
+        for (let i = 3; i <= 14; i++) sheet.getColumn(i).width = 8;
     } // end section loop
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -616,238 +624,65 @@ const exportWord = asyncHandler(async (req, res) => {
 
                 // Title
                 new Paragraph({
-                    children: [
-                        new TextRun({
-                            text: 'Department of AIML',
-                            bold: true,
-                            size: 48,
-                            color: '1e40af',
-                        }),
-                    ],
+                    children: [new TextRun({ text: 'FEEDBACK SYSTEM', bold: true, size: 40 })],
                     alignment: AlignmentType.CENTER,
-                    spacing: { after: 200, before: 200 },
-                }),
-                new Paragraph({
-                    children: [
-                        new TextRun({
-                            text: 'Feedback Analysis Report',
-                            bold: true,
-                            size: 36,
-                            color: '1e40af',
-                        }),
-                    ],
-                    alignment: AlignmentType.CENTER,
-                    spacing: { after: 400 },
+                    spacing: { after: 400, before: 200 },
                 }),
 
-                // Report Info
-                new Paragraph({
-                    children: [
-                        new TextRun({
-                            text: `Academic Year: ${year} | Semester: ${semester} | Section: ${currentSection}`,
-                            bold: true,
-                            size: 24,
-                        }),
-                    ],
-                    alignment: AlignmentType.CENTER,
-                    spacing: { after: 200 },
-                }),
-                new Paragraph({
-                    children: [
-                        new TextRun({
-                            text: `Generated: ${new Date().toLocaleDateString('en-IN', {
-                                year: 'numeric',
-                                month: 'long',
-                                day: 'numeric'
-                            })}`,
-                            size: 20,
-                        }),
-                    ],
-                    alignment: AlignmentType.CENTER,
-                    spacing: { after: 600 },
-                }),
+                ...(() => {
+                    const documentElements = [];
 
-                // Faculty Performance Section
-                new Paragraph({
-                    children: [
-                        new TextRun({
-                            text: 'Faculty Performance Analysis',
-                            bold: true,
-                            size: 32,
-                            color: '1e40af',
-                        }),
-                    ],
-                    spacing: { before: 400, after: 300 },
-                }),
+                    const yearLabel = year === 2 ? 'II' : year === 3 ? 'III' : 'IV';
+                    const semLabel = semester === 1 ? 'I' : 'II';
+                    const basePath = `2025-26 - AIML - ${yearLabel} - ${semLabel} - ${currentSection}`;
 
-                // Faculty Table
-                new Table({
-                    width: {
-                        size: 100,
-                        type: WidthType.PERCENTAGE,
-                    },
-                    rows: [
-                        // Header Row
-                        new TableRow({
-                            tableHeader: true,
-                            children: [
-                                new TableCell({
-                                    children: [new Paragraph({
-                                        children: [new TextRun({ text: 'S.No', bold: true, color: 'FFFFFF' })],
-                                        alignment: AlignmentType.CENTER,
-                                    })],
-                                    shading: { fill: '3b82f6' },
-                                }),
-                                new TableCell({
-                                    children: [new Paragraph({
-                                        children: [new TextRun({ text: 'Faculty Name', bold: true, color: 'FFFFFF' })],
-                                        alignment: AlignmentType.CENTER,
-                                    })],
-                                    shading: { fill: '3b82f6' },
-                                }),
-                                new TableCell({
-                                    children: [new Paragraph({
-                                        children: [new TextRun({ text: 'Average Score (%)', bold: true, color: 'FFFFFF' })],
-                                        alignment: AlignmentType.CENTER,
-                                    })],
-                                    shading: { fill: '3b82f6' },
-                                }),
-                                new TableCell({
-                                    children: [new Paragraph({
-                                        children: [new TextRun({ text: 'Rating', bold: true, color: 'FFFFFF' })],
-                                        alignment: AlignmentType.CENTER,
-                                    })],
-                                    shading: { fill: '3b82f6' },
-                                }),
-                            ],
-                        }),
-                        // Data Rows
-                        ...analytics.facultyReport.map((f, index) => {
-                            const score = parseFloat(f.average);
-                            const rating = score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : 'Average';
-                            const color = score >= 90 ? '16a34a' : score >= 75 ? '2563eb' : 'ea580c';
+                    const buildWordTable = (title, dataList, isTheory) => {
+                        if (!dataList || dataList.length === 0) return [];
+                        const nodes = [];
 
-                            return new TableRow({
-                                children: [
-                                    new TableCell({
-                                        children: [new Paragraph({
-                                            children: [new TextRun({ text: `${index + 1}` })],
-                                            alignment: AlignmentType.CENTER,
-                                        })],
-                                    }),
-                                    new TableCell({
-                                        children: [new Paragraph({
-                                            children: [new TextRun({ text: f.name })],
-                                        })],
-                                    }),
-                                    new TableCell({
-                                        children: [new Paragraph({
-                                            children: [new TextRun({ text: f.average, bold: true, color })],
-                                            alignment: AlignmentType.CENTER,
-                                        })],
-                                    }),
-                                    new TableCell({
-                                        children: [new Paragraph({
-                                            children: [new TextRun({ text: rating, bold: true, color })],
-                                            alignment: AlignmentType.CENTER,
-                                        })],
-                                    }),
-                                ],
-                            });
-                        }),
-                    ],
-                }),
+                        // Table Title
+                        nodes.push(new Paragraph({
+                            children: [new TextRun({ text: title, bold: true, size: 28 })],
+                            alignment: AlignmentType.CENTER,
+                            spacing: { before: 400, after: 200 },
+                        }));
 
-                // Subject Performance Section
-                new Paragraph({
-                    children: [
-                        new TextRun({
-                            text: 'Subject Performance Analysis',
-                            bold: true,
-                            size: 32,
-                            color: '7c3aed',
-                        }),
-                    ],
-                    spacing: { before: 600, after: 300 },
-                }),
+                        const numParams = isTheory ? 10 : 8;
+                        const headers = ['S.No', isTheory ? 'SUBJECT NAME' : 'LAB SUBJECT NAME'];
+                        for (let i = 1; i <= numParams; i++) headers.push(`P${i}`);
+                        headers.push('FEEDBACK (%)');
 
-                // Subject Table
-                new Table({
-                    width: {
-                        size: 100,
-                        type: WidthType.PERCENTAGE,
-                    },
-                    rows: [
-                        // Header Row
-                        new TableRow({
-                            tableHeader: true,
-                            children: [
-                                new TableCell({
-                                    children: [new Paragraph({
-                                        children: [new TextRun({ text: 'S.No', bold: true, color: 'FFFFFF' })],
-                                        alignment: AlignmentType.CENTER,
-                                    })],
-                                    shading: { fill: '9333ea' },
-                                }),
-                                new TableCell({
-                                    children: [new Paragraph({
-                                        children: [new TextRun({ text: 'Subject Name', bold: true, color: 'FFFFFF' })],
-                                        alignment: AlignmentType.CENTER,
-                                    })],
-                                    shading: { fill: '9333ea' },
-                                }),
-                                new TableCell({
-                                    children: [new Paragraph({
-                                        children: [new TextRun({ text: 'Average Score (%)', bold: true, color: 'FFFFFF' })],
-                                        alignment: AlignmentType.CENTER,
-                                    })],
-                                    shading: { fill: '9333ea' },
-                                }),
-                                new TableCell({
-                                    children: [new Paragraph({
-                                        children: [new TextRun({ text: 'Rating', bold: true, color: 'FFFFFF' })],
-                                        alignment: AlignmentType.CENTER,
-                                    })],
-                                    shading: { fill: '9333ea' },
-                                }),
-                            ],
-                        }),
-                        // Data Rows
-                        ...analytics.subjectReport.map((s, index) => {
-                            const score = parseFloat(s.average);
-                            const rating = score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : 'Average';
-                            const color = score >= 90 ? '16a34a' : score >= 75 ? '2563eb' : 'ea580c';
+                        const tableRows = [
+                            new TableRow({
+                                tableHeader: true,
+                                children: headers.map(h => new TableCell({
+                                    children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, size: 16 })], alignment: AlignmentType.CENTER })],
+                                    shading: { fill: 'e5e7eb' },
+                                }))
+                            }),
+                            ...dataList.map((row, index) => {
+                                const rowCells = [(index + 1).toString(), row.subjectName, ...row.params.slice(0, numParams), `${row.average}%`];
+                                return new TableRow({
+                                    children: rowCells.map((val, cellIdx) => new TableCell({
+                                        children: [new Paragraph({ children: [new TextRun({ text: val, size: 18 })], alignment: cellIdx === 1 ? AlignmentType.LEFT : AlignmentType.CENTER })],
+                                    }))
+                                });
+                            })
+                        ];
 
-                            return new TableRow({
-                                children: [
-                                    new TableCell({
-                                        children: [new Paragraph({
-                                            children: [new TextRun({ text: `${index + 1}` })],
-                                            alignment: AlignmentType.CENTER,
-                                        })],
-                                    }),
-                                    new TableCell({
-                                        children: [new Paragraph({
-                                            children: [new TextRun({ text: s.name })],
-                                        })],
-                                    }),
-                                    new TableCell({
-                                        children: [new Paragraph({
-                                            children: [new TextRun({ text: s.average, bold: true, color })],
-                                            alignment: AlignmentType.CENTER,
-                                        })],
-                                    }),
-                                    new TableCell({
-                                        children: [new Paragraph({
-                                            children: [new TextRun({ text: rating, bold: true, color })],
-                                            alignment: AlignmentType.CENTER,
-                                        })],
-                                    }),
-                                ],
-                            });
-                        }),
-                    ],
-                }),
+                        nodes.push(new Table({
+                            width: { size: 100, type: WidthType.PERCENTAGE },
+                            rows: tableRows,
+                        }));
+
+                        return nodes;
+                    };
+
+                    documentElements.push(...buildWordTable(`${basePath} - (Theory) FEED BACK - II`, analytics.detailedReport?.theory || [], true));
+                    documentElements.push(...buildWordTable(`${basePath} - (Laboratory) FEED BACK - II`, analytics.detailedReport?.lab || [], false));
+
+                    return documentElements;
+                })(),
 
                 // Footer
                 new Paragraph({
