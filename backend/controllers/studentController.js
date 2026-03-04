@@ -98,9 +98,10 @@ const submitFeedback = asyncHandler(async (req, res) => {
 
     const minAttendance = 75;
 
-    if (!student.attendancePercentage || student.attendancePercentage < minAttendance) {
+    const currentAttendance = student.attendancePercentage ?? 0;
+    if (currentAttendance < minAttendance) {
         res.status(403);
-        throw new Error(`Your attendance is ${student.attendancePercentage}%. Minimum required is ${minAttendance}% to submit feedback.`);
+        throw new Error(`Your attendance is ${currentAttendance}%. Minimum required is ${minAttendance}% to submit feedback.`);
     }
 
     const subject = await Subject.findById(subjectId);
@@ -129,6 +130,11 @@ const submitFeedback = asyncHandler(async (req, res) => {
 
     let totalScore = 0;
     let maxScore = responses.length * 5;
+
+    if (maxScore === 0) {
+        res.status(400);
+        throw new Error('No responses provided');
+    }
 
     responses.forEach((response) => {
         totalScore += response.rating;

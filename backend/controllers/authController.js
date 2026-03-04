@@ -9,12 +9,19 @@ const generateToken = require('../utils/generateToken');
 const authUser = asyncHandler(async (req, res) => {
     const { username, password } = req.body;
 
+    if (!username || !password) {
+        res.status(400);
+        throw new Error('Please provide username and password');
+    }
+
+    const safeUsername = String(username).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
     let user;
     let role;
 
     // Check if student (Case Insensitive)
     const student = await Student.findOne({
-        rollId: { $regex: new RegExp(`^${username}$`, 'i') }
+        rollId: { $regex: new RegExp(`^${safeUsername}$`, 'i') }
     });
 
     if (student) {
@@ -23,7 +30,7 @@ const authUser = asyncHandler(async (req, res) => {
     } else {
         // Check if admin/hod (Case Insensitive)
         const adminHod = await User.findOne({
-            username: { $regex: new RegExp(`^${username}$`, 'i') }
+            username: { $regex: new RegExp(`^${safeUsername}$`, 'i') }
         });
 
         if (adminHod) {
@@ -36,12 +43,8 @@ const authUser = asyncHandler(async (req, res) => {
 
     if (user) {
         if (role === 'student') {
-            // Check formatted password (if we want to enforce case sensitivity strictly here we can, 
-            // but matchPassword handles the hash comparison of the exact string passed)
-            if (await user.matchPassword(password)) {
-                passwordMatch = true;
-            } else if (password.toUpperCase() === user.rollId.toUpperCase()) {
-                // Fallback: Allow login with Roll ID (legacy/convenience)
+            // Restrict password to strictly be the student's Roll ID in uppercase
+            if (password === String(user.rollId).toUpperCase()) {
                 passwordMatch = true;
             }
         } else {
