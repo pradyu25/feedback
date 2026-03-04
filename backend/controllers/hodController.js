@@ -12,17 +12,30 @@ const path = require('path');
 // Helper for analytics
 const calculateAnalytics = async (query) => {
     // Ensure types matches Schema (Numbers)
-    const filter = {};
-    if (query.year) filter.year = parseInt(query.year);
-    if (query.semester) filter.semester = parseInt(query.semester);
+    const baseFilter = {};
+    if (query.year) baseFilter.year = parseInt(query.year);
+    if (query.semester) baseFilter.semester = parseInt(query.semester);
 
-    const feedbacks = await Feedback.find(filter)
+    const subjectsFilter = { ...baseFilter };
+    const studentsFilter = { ...baseFilter };
+
+    if (query.section && query.section !== 'All') {
+        subjectsFilter.section = query.section;
+        studentsFilter.section = query.section;
+    }
+
+    const students = await Student.find(studentsFilter);
+    const subjects = await Subject.find(subjectsFilter);
+
+    const feedbackFilter = { ...baseFilter };
+    if (query.section && query.section !== 'All') {
+        feedbackFilter.subjectId = { $in: subjects.map(s => s._id) };
+        feedbackFilter.studentId = { $in: students.map(s => s._id) };
+    }
+
+    const feedbacks = await Feedback.find(feedbackFilter)
         .populate('facultyId', 'name')
         .populate('subjectId', 'subjectName');
-
-    // Calculate Completed Students (All subjects done)
-    const students = await Student.find(filter);
-    const subjects = await Subject.find(filter);
 
     const sectionSubjectCount = {};
     subjects.forEach(s => {
@@ -119,11 +132,14 @@ const calculateAnalytics = async (query) => {
 // @route   GET /api/hod/analytics
 // @access  Private (HOD)
 const getAnalytics = asyncHandler(async (req, res) => {
-    const { year, semester } = req.query;
-    const analytics = await calculateAnalytics({ year, semester });
+    const { year, semester, section } = req.query;
+    const analytics = await calculateAnalytics({ year, semester, section });
 
-    // Need proper total student count logic based on enrollment
-    const totalStudents = await Student.countDocuments(year ? { year: parseInt(year) } : {});
+    const countFilter = {};
+    if (year) countFilter.year = parseInt(year);
+    if (section && section !== 'All') countFilter.section = section;
+
+    const totalStudents = await Student.countDocuments(countFilter);
 
     res.json({
         totalStudents,
@@ -140,8 +156,18 @@ const getAnalytics = asyncHandler(async (req, res) => {
 // @route   GET /api/hod/export/pdf
 // @access  Private (HOD)
 const exportPDF = asyncHandler(async (req, res) => {
-    const { year, semester } = req.query;
-    const analytics = await calculateAnalytics({ year, semester });
+    const { year, semester, section } = req.query;
+
+    let sectionsToExport = [];
+    if (section && section !== 'All') {
+        sectionsToExport = [section];
+    } else {
+        const filter = {};
+        if (year) filter.year = parseInt(year);
+        if (semester) filter.semester = parseInt(semester);
+        const distinctSections = await Subject.find(filter).distinct('section');
+        sectionsToExport = distinctSections.length > 0 ? distinctSections.sort() : ['All'];
+    }
 
     const doc = new PDFDocument({ margin: 0, size: 'A4' }); // Start with 0 margin
     const filename = `Feedback_Report_Y${year}_S${semester}.pdf`;
@@ -151,99 +177,110 @@ const exportPDF = asyncHandler(async (req, res) => {
 
     doc.pipe(res);
 
-    // Add Logo Banner (Full Width)
-    const logoPath = path.join(__dirname, '..', 'logo.png');
-    if (fs.existsSync(logoPath)) {
-        // A4 width ~595.28 points
-        doc.image(logoPath, 0, 0, { width: 595.28, height: 150 });
-    }
+    for (let i = 0; i < sectionsToExport.length; i++) {
+        const currentSection = sectionsToExport[i];
+        const analytics = await calculateAnalytics({ year, semester, section: currentSection });
 
-    // Header Content (Shifted down)
-    const headerStartY = 170;
-
-    // Title
-    doc.font('Helvetica-Bold').fontSize(24).text('Department of AIML', 0, headerStartY, { align: 'center', width: 595.28 });
-    doc.fontSize(20).text('Feedback Analysis Report', 0, headerStartY + 35, { align: 'center', width: 595.28 });
-
-    // Info Box
-    const infoBoxY = headerStartY + 80;
-    doc.rect(50, infoBoxY, 495, 80).fillAndStroke('#f0f0f0', '#333');
-    doc.fillColor('#000')
-        .fontSize(12)
-        .font('Helvetica-Bold')
-        .text(`Academic Year: ${year}`, 70, infoBoxY + 20)
-        .text(`Semester: ${semester}`, 70, infoBoxY + 40)
-        .text(`Generated: ${new Date().toLocaleDateString('en-IN', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        })}`, 70, infoBoxY + 60);
-
-    let yPosition = infoBoxY + 120;
-
-    // Faculty Performance Section
-    doc.fontSize(16).font('Helvetica-Bold').fillColor('#1e40af').text('Faculty Performance Analysis', 50, yPosition);
-    doc.moveTo(50, yPosition + 20).lineTo(545, yPosition + 20).stroke('#1e40af');
-    yPosition += 40;
-
-    analytics.facultyReport.forEach((f, index) => {
-        const score = parseFloat(f.average);
-        const color = score >= 90 ? '#16a34a' : score >= 75 ? '#2563eb' : '#ea580c';
-
-        doc.fontSize(11)
-            .font('Helvetica')
-            .fillColor('#000')
-            .text(`${index + 1}. ${f.name}`, 70, yPosition);
-
-        doc.fontSize(11)
-            .font('Helvetica-Bold')
-            .fillColor(color)
-            .text(`${f.average}%`, 450, yPosition);
-
-        yPosition += 25;
-
-        // Add new page if needed
-        if (yPosition > 700) {
+        if (i > 0) {
             doc.addPage();
-            yPosition = 50;
-            // Re-add logo on new pages if desired? For now, keep simple.
         }
-    });
 
-    doc.moveDown(2);
-    yPosition += 30;
+        // Add Logo Banner (Full Width)
+        const logoPath = path.join(__dirname, '..', 'logo.png');
+        if (fs.existsSync(logoPath)) {
+            // A4 width ~595.28 points
+            doc.image(logoPath, 0, 0, { width: 595.28, height: 150 });
+        }
 
-    // Subject Performance Section
-    if (yPosition > 650) {
-        doc.addPage();
-        yPosition = 50;
-    }
+        // Header Content (Shifted down)
+        const headerStartY = 170;
 
-    doc.fontSize(16).font('Helvetica-Bold').fillColor('#7c3aed').text('Subject Performance Analysis', 50, yPosition);
-    doc.moveTo(50, yPosition + 20).lineTo(545, yPosition + 20).stroke('#7c3aed');
-    yPosition += 40;
+        // Title
+        doc.font('Helvetica-Bold').fontSize(24).text('Department of AIML', 0, headerStartY, { align: 'center', width: 595.28 });
+        doc.fontSize(20).text('Feedback Analysis Report', 0, headerStartY + 35, { align: 'center', width: 595.28 });
 
-    analytics.subjectReport.forEach((s, index) => {
-        const score = parseFloat(s.average);
-        const color = score >= 90 ? '#16a34a' : score >= 75 ? '#2563eb' : '#ea580c';
-
-        doc.fontSize(11)
-            .font('Helvetica')
-            .fillColor('#000')
-            .text(`${index + 1}. ${s.name}`, 70, yPosition);
-
-        doc.fontSize(11)
+        // Info Box
+        const infoBoxY = headerStartY + 80;
+        doc.rect(50, infoBoxY, 495, 80).fillAndStroke('#f0f0f0', '#333');
+        doc.fillColor('#000')
+            .fontSize(12)
             .font('Helvetica-Bold')
-            .fillColor(color)
-            .text(`${s.average}%`, 450, yPosition);
+            .text(`Academic Year: ${year}`, 70, infoBoxY + 20)
+            .text(`Semester: ${semester}`, 70, infoBoxY + 40)
+            .text(`Section: ${currentSection}`, 70, infoBoxY + 60)
+            .text(`Generated: ${new Date().toLocaleDateString('en-IN', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            })}`, 70, infoBoxY + 80);
 
-        yPosition += 25;
+        let yPosition = infoBoxY + 120;
 
-        if (yPosition > 700) {
+        // Faculty Performance Section
+        doc.fontSize(16).font('Helvetica-Bold').fillColor('#1e40af').text('Faculty Performance Analysis', 50, yPosition);
+        doc.moveTo(50, yPosition + 20).lineTo(545, yPosition + 20).stroke('#1e40af');
+        yPosition += 40;
+
+        analytics.facultyReport.forEach((f, index) => {
+            const score = parseFloat(f.average);
+            const color = score >= 90 ? '#16a34a' : score >= 75 ? '#2563eb' : '#ea580c';
+
+            doc.fontSize(11)
+                .font('Helvetica')
+                .fillColor('#000')
+                .text(`${index + 1}. ${f.name}`, 70, yPosition);
+
+            doc.fontSize(11)
+                .font('Helvetica-Bold')
+                .fillColor(color)
+                .text(`${f.average}%`, 450, yPosition);
+
+            yPosition += 25;
+
+            // Add new page if needed
+            if (yPosition > 700) {
+                doc.addPage();
+                yPosition = 50;
+                // Re-add logo on new pages if desired? For now, keep simple.
+            }
+        });
+
+        doc.moveDown(2);
+        yPosition += 30;
+
+        // Subject Performance Section
+        if (yPosition > 650) {
             doc.addPage();
             yPosition = 50;
         }
-    });
+
+        doc.fontSize(16).font('Helvetica-Bold').fillColor('#7c3aed').text('Subject Performance Analysis', 50, yPosition);
+        doc.moveTo(50, yPosition + 20).lineTo(545, yPosition + 20).stroke('#7c3aed');
+        yPosition += 40;
+
+        analytics.subjectReport.forEach((s, index) => {
+            const score = parseFloat(s.average);
+            const color = score >= 90 ? '#16a34a' : score >= 75 ? '#2563eb' : '#ea580c';
+
+            doc.fontSize(11)
+                .font('Helvetica')
+                .fillColor('#000')
+                .text(`${index + 1}. ${s.name}`, 70, yPosition);
+
+            doc.fontSize(11)
+                .font('Helvetica-Bold')
+                .fillColor(color)
+                .text(`${s.average}%`, 450, yPosition);
+
+            yPosition += 25;
+
+            if (yPosition > 700) {
+                doc.addPage();
+                yPosition = 50;
+            }
+        });
+
+    } // end sectionsToExport loop
 
     // Footer
     const pages = doc.bufferedPageRange();
@@ -266,184 +303,201 @@ const exportPDF = asyncHandler(async (req, res) => {
 // @route   GET /api/hod/export/excel
 // @access  Private (HOD)
 const exportExcel = asyncHandler(async (req, res) => {
-    const { year, semester } = req.query;
-    const analytics = await calculateAnalytics({ year, semester });
+    const { year, semester, section } = req.query;
 
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Feedback Report', {
-        pageSetup: { paperSize: 9, orientation: 'portrait' }
-    });
-
-    // Add Logo (Covering Columns A-D, Rows 1-5)
-    const logoPath = path.join(__dirname, '..', 'logo.png');
-    const startDataRow = 7; // Shift content down
-
-    if (fs.existsSync(logoPath)) {
-        const logoId = workbook.addImage({
-            filename: logoPath,
-            extension: 'png',
-        });
-        sheet.addImage(logoId, {
-            tl: { col: 0, row: 0 },
-            br: { col: 4, row: 5 } // Covers A1 to D5
-        });
+    let sectionsToExport = [];
+    if (section && section !== 'All') {
+        sectionsToExport = [section];
+    } else {
+        const filter = {};
+        if (year) filter.year = parseInt(year);
+        if (semester) filter.semester = parseInt(semester);
+        const distinctSections = await Subject.find(filter).distinct('section');
+        sectionsToExport = distinctSections.length > 0 ? distinctSections.sort() : ['All'];
     }
 
-    // Header Section (Shifted)
-    const titleRow = startDataRow;
-    sheet.mergeCells(`A${titleRow}:D${titleRow + 2}`);
-    const titleCell = sheet.getCell(`A${titleRow}`);
-    titleCell.value = 'Department of AIML\nFeedback Analysis Report';
-    titleCell.font = { name: 'Calibri', size: 20, bold: true, color: { argb: 'FF1e40af' } };
-    titleCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    const workbook = new ExcelJS.Workbook();
 
-    // Report Info (Shifted)
-    const infoRow = titleRow + 4;
-    sheet.getRow(infoRow).height = 25;
-    sheet.mergeCells(`A${infoRow}:D${infoRow}`);
-    const infoCell = sheet.getCell(`A${infoRow}`);
-    infoCell.value = `Academic Year: ${year} | Semester: ${semester} | Generated: ${new Date().toLocaleDateString('en-IN')}`;
-    infoCell.font = { name: 'Calibri', size: 12, bold: true };
-    infoCell.alignment = { vertical: 'middle', horizontal: 'center' };
-    infoCell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFe5e7eb' }
-    };
+    for (let i = 0; i < sectionsToExport.length; i++) {
+        const currentSection = sectionsToExport[i];
+        const analytics = await calculateAnalytics({ year, semester, section: currentSection });
 
-    // Faculty Performance Section (Shifted)
-    const facultyHeaderRow = infoRow + 2;
-    sheet.getRow(facultyHeaderRow).height = 25;
-    sheet.mergeCells(`A${facultyHeaderRow}:D${facultyHeaderRow}`);
-    const facultyHeader = sheet.getCell(`A${facultyHeaderRow}`);
-    facultyHeader.value = 'Faculty Performance Analysis';
-    facultyHeader.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
-    facultyHeader.alignment = { vertical: 'middle', horizontal: 'center' };
-    facultyHeader.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FF1e40af' }
-    };
+        const sheetName = sectionsToExport.length > 1 ? `Section ${currentSection}` : 'Feedback Report';
+        const sheet = workbook.addWorksheet(sheetName, {
+            pageSetup: { paperSize: 9, orientation: 'portrait' }
+        });
 
-    // Faculty Table Headers
-    const facultyTableHeadersRow = facultyHeaderRow + 1;
-    sheet.getRow(facultyTableHeadersRow).height = 20;
-    const facultyTableHeaders = ['S.No', 'Faculty Name', 'Average Score (%)', 'Rating'];
-    facultyTableHeaders.forEach((header, index) => {
-        const cell = sheet.getCell(facultyTableHeadersRow, index + 1);
-        cell.value = header;
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-        cell.alignment = { vertical: 'middle', horizontal: 'center' };
-        cell.fill = {
+        // Add Logo (Covering Columns A-D, Rows 1-5)
+        const logoPath = path.join(__dirname, '..', 'logo.png');
+        const startDataRow = 7; // Shift content down
+
+        if (fs.existsSync(logoPath)) {
+            const logoId = workbook.addImage({
+                filename: logoPath,
+                extension: 'png',
+            });
+            sheet.addImage(logoId, {
+                tl: { col: 0, row: 0 },
+                br: { col: 4, row: 5 } // Covers A1 to D5
+            });
+        }
+
+        // Header Section (Shifted)
+        const titleRow = startDataRow;
+        sheet.mergeCells(`A${titleRow}:D${titleRow + 2}`);
+        const titleCell = sheet.getCell(`A${titleRow}`);
+        titleCell.value = 'Department of AIML\nFeedback Analysis Report';
+        titleCell.font = { name: 'Calibri', size: 20, bold: true, color: { argb: 'FF1e40af' } };
+        titleCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+
+        // Report Info (Shifted)
+        const infoRow = titleRow + 4;
+        sheet.getRow(infoRow).height = 25;
+        sheet.mergeCells(`A${infoRow}:D${infoRow}`);
+        const infoCell = sheet.getCell(`A${infoRow}`);
+        infoCell.value = `Academic Year: ${year} | Semester: ${semester} | Section: ${currentSection} | Generated: ${new Date().toLocaleDateString('en-IN')}`;
+        infoCell.font = { name: 'Calibri', size: 12, bold: true };
+        infoCell.alignment = { vertical: 'middle', horizontal: 'center' };
+        infoCell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FF3b82f6' }
+            fgColor: { argb: 'FFe5e7eb' }
         };
-        cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            bottom: { style: 'thin' },
-            right: { style: 'thin' }
+
+        // Faculty Performance Section (Shifted)
+        const facultyHeaderRow = infoRow + 2;
+        sheet.getRow(facultyHeaderRow).height = 25;
+        sheet.mergeCells(`A${facultyHeaderRow}:D${facultyHeaderRow}`);
+        const facultyHeader = sheet.getCell(`A${facultyHeaderRow}`);
+        facultyHeader.value = 'Faculty Performance Analysis';
+        facultyHeader.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+        facultyHeader.alignment = { vertical: 'middle', horizontal: 'center' };
+        facultyHeader.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF1e40af' }
         };
-    });
 
-    // Faculty Data
-    let currentRow = facultyTableHeadersRow + 1;
-    analytics.facultyReport.forEach((f, index) => {
-        const score = parseFloat(f.average);
-        const rating = score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : 'Average';
-        const scoreColor = score >= 90 ? 'FF16a34a' : score >= 75 ? 'FF2563eb' : 'FFea580c';
-
-        sheet.getRow(currentRow).values = [index + 1, f.name, f.average, rating];
-
-        // Style each cell
-        for (let col = 1; col <= 4; col++) {
-            const cell = sheet.getCell(currentRow, col);
-            cell.font = { name: 'Calibri', size: 10 };
-            cell.alignment = { vertical: 'middle', horizontal: col === 2 ? 'left' : 'center' };
+        // Faculty Table Headers
+        const facultyTableHeadersRow = facultyHeaderRow + 1;
+        sheet.getRow(facultyTableHeadersRow).height = 20;
+        const facultyTableHeaders = ['S.No', 'Faculty Name', 'Average Score (%)', 'Rating'];
+        facultyTableHeaders.forEach((header, index) => {
+            const cell = sheet.getCell(facultyTableHeadersRow, index + 1);
+            cell.value = header;
+            cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FF3b82f6' }
+            };
             cell.border = {
                 top: { style: 'thin' },
                 left: { style: 'thin' },
                 bottom: { style: 'thin' },
                 right: { style: 'thin' }
             };
+        });
 
-            // Color code the score and rating
-            if (col === 3 || col === 4) {
-                cell.font = { ...cell.font, bold: true, color: { argb: scoreColor } };
+        // Faculty Data
+        let currentRow = facultyTableHeadersRow + 1;
+        analytics.facultyReport.forEach((f, index) => {
+            const score = parseFloat(f.average);
+            const rating = score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : 'Average';
+            const scoreColor = score >= 90 ? 'FF16a34a' : score >= 75 ? 'FF2563eb' : 'FFea580c';
+
+            sheet.getRow(currentRow).values = [index + 1, f.name, f.average, rating];
+
+            // Style each cell
+            for (let col = 1; col <= 4; col++) {
+                const cell = sheet.getCell(currentRow, col);
+                cell.font = { name: 'Calibri', size: 10 };
+                cell.alignment = { vertical: 'middle', horizontal: col === 2 ? 'left' : 'center' };
+                cell.border = {
+                    top: { style: 'thin' },
+                    left: { style: 'thin' },
+                    bottom: { style: 'thin' },
+                    right: { style: 'thin' }
+                };
+
+                // Color code the score and rating
+                if (col === 3 || col === 4) {
+                    cell.font = { ...cell.font, bold: true, color: { argb: scoreColor } };
+                }
             }
-        }
-        currentRow++;
-    });
+            currentRow++;
+        });
 
-    // Subject Performance Section
-    currentRow += 2;
-    sheet.getRow(currentRow).height = 25;
-    sheet.mergeCells(`A${currentRow}:D${currentRow}`);
-    const subjectHeader = sheet.getCell(`A${currentRow}`);
-    subjectHeader.value = 'Subject Performance Analysis';
-    subjectHeader.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
-    subjectHeader.alignment = { vertical: 'middle', horizontal: 'center' };
-    subjectHeader.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FF7c3aed' }
-    };
-
-    // Subject Table Headers
-    currentRow++;
-    sheet.getRow(currentRow).height = 20;
-    const subjectTableHeaders = ['S.No', 'Subject Name', 'Average Score (%)', 'Rating'];
-    subjectTableHeaders.forEach((header, index) => {
-        const cell = sheet.getCell(currentRow, index + 1);
-        cell.value = header;
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-        cell.alignment = { vertical: 'middle', horizontal: 'center' };
-        cell.fill = {
+        // Subject Performance Section
+        currentRow += 2;
+        sheet.getRow(currentRow).height = 25;
+        sheet.mergeCells(`A${currentRow}:D${currentRow}`);
+        const subjectHeader = sheet.getCell(`A${currentRow}`);
+        subjectHeader.value = 'Subject Performance Analysis';
+        subjectHeader.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+        subjectHeader.alignment = { vertical: 'middle', horizontal: 'center' };
+        subjectHeader.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FF9333ea' }
+            fgColor: { argb: 'FF7c3aed' }
         };
-        cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            bottom: { style: 'thin' },
-            right: { style: 'thin' }
-        };
-    });
 
-    // Subject Data
-    currentRow++;
-    analytics.subjectReport.forEach((s, index) => {
-        const score = parseFloat(s.average);
-        const rating = score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : 'Average';
-        const scoreColor = score >= 90 ? 'FF16a34a' : score >= 75 ? 'FF2563eb' : 'FFea580c';
-
-        sheet.getRow(currentRow).values = [index + 1, s.name, s.average, rating];
-
-        for (let col = 1; col <= 4; col++) {
-            const cell = sheet.getCell(currentRow, col);
-            cell.font = { name: 'Calibri', size: 10 };
-            cell.alignment = { vertical: 'middle', horizontal: col === 2 ? 'left' : 'center' };
+        // Subject Table Headers
+        currentRow++;
+        sheet.getRow(currentRow).height = 20;
+        const subjectTableHeaders = ['S.No', 'Subject Name', 'Average Score (%)', 'Rating'];
+        subjectTableHeaders.forEach((header, index) => {
+            const cell = sheet.getCell(currentRow, index + 1);
+            cell.value = header;
+            cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FF9333ea' }
+            };
             cell.border = {
                 top: { style: 'thin' },
                 left: { style: 'thin' },
                 bottom: { style: 'thin' },
                 right: { style: 'thin' }
             };
+        });
 
-            if (col === 3 || col === 4) {
-                cell.font = { ...cell.font, bold: true, color: { argb: scoreColor } };
-            }
-        }
+        // Subject Data
         currentRow++;
-    });
+        analytics.subjectReport.forEach((s, index) => {
+            const score = parseFloat(s.average);
+            const rating = score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : 'Average';
+            const scoreColor = score >= 90 ? 'FF16a34a' : score >= 75 ? 'FF2563eb' : 'FFea580c';
 
-    // Set column widths
-    sheet.getColumn(1).width = 8;
-    sheet.getColumn(2).width = 35;
-    sheet.getColumn(3).width = 20;
-    sheet.getColumn(4).width = 15;
+            sheet.getRow(currentRow).values = [index + 1, s.name, s.average, rating];
+
+            for (let col = 1; col <= 4; col++) {
+                const cell = sheet.getCell(currentRow, col);
+                cell.font = { name: 'Calibri', size: 10 };
+                cell.alignment = { vertical: 'middle', horizontal: col === 2 ? 'left' : 'center' };
+                cell.border = {
+                    top: { style: 'thin' },
+                    left: { style: 'thin' },
+                    bottom: { style: 'thin' },
+                    right: { style: 'thin' }
+                };
+
+                if (col === 3 || col === 4) {
+                    cell.font = { ...cell.font, bold: true, color: { argb: scoreColor } };
+                }
+            }
+            currentRow++;
+        });
+
+        // Set column widths
+        sheet.getColumn(1).width = 8;
+        sheet.getColumn(2).width = 35;
+        sheet.getColumn(3).width = 20;
+        sheet.getColumn(4).width = 15;
+    } // end section loop
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=Feedback_Report_Y${year}_S${semester}.xlsx`);
@@ -456,8 +510,18 @@ const exportExcel = asyncHandler(async (req, res) => {
 // @route   GET /api/hod/export/word
 // @access  Private (HOD)
 const exportWord = asyncHandler(async (req, res) => {
-    const { year, semester } = req.query;
-    const analytics = await calculateAnalytics({ year, semester });
+    const { year, semester, section } = req.query;
+
+    let sectionsToExport = [];
+    if (section && section !== 'All') {
+        sectionsToExport = [section];
+    } else {
+        const filter = {};
+        if (year) filter.year = parseInt(year);
+        if (semester) filter.semester = parseInt(semester);
+        const distinctSections = await Subject.find(filter).distinct('section');
+        sectionsToExport = distinctSections.length > 0 ? distinctSections.sort() : ['All'];
+    }
 
     const { Table, TableCell, TableRow, WidthType, BorderStyle } = require('docx');
 
@@ -473,8 +537,13 @@ const exportWord = asyncHandler(async (req, res) => {
         });
     }
 
-    const doc = new Document({
-        sections: [{
+    const wordSections = [];
+
+    for (let i = 0; i < sectionsToExport.length; i++) {
+        const currentSection = sectionsToExport[i];
+        const analytics = await calculateAnalytics({ year, semester, section: currentSection });
+
+        wordSections.push({
             properties: {
                 page: {
                     margin: {
@@ -529,7 +598,7 @@ const exportWord = asyncHandler(async (req, res) => {
                 new Paragraph({
                     children: [
                         new TextRun({
-                            text: `Academic Year: ${year} | Semester: ${semester}`,
+                            text: `Academic Year: ${year} | Semester: ${semester} | Section: ${currentSection}`,
                             bold: true,
                             size: 24,
                         }),
@@ -747,7 +816,11 @@ const exportWord = asyncHandler(async (req, res) => {
                     spacing: { before: 800 },
                 }),
             ],
-        }],
+        });
+    } // end section loop
+
+    const doc = new Document({
+        sections: wordSections,
     });
 
     const buffer = await Packer.toBuffer(doc);

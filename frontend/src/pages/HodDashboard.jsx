@@ -29,6 +29,7 @@ const chartOptions = {
 const HodDashboard = () => {
     const [year, setYear] = useState(3);
     const [semester, setSemester] = useState(5);
+    const [section, setSection] = useState('All');
     const [analytics, setAnalytics] = useState(null);
     const [loading, setLoading] = useState(false);
     const [exporting, setExporting] = useState(false);
@@ -47,7 +48,7 @@ const HodDashboard = () => {
         const fetchAnalytics = async () => {
             setLoading(true);
             try {
-                const { data } = await api.get(`/hod/analytics?year=${year}&semester=${semester}`);
+                const { data } = await api.get(`/hod/analytics?year=${year}&semester=${semester}&section=${section}`);
                 setAnalytics(data);
             } catch (err) {
                 console.error(err);
@@ -57,12 +58,12 @@ const HodDashboard = () => {
         };
 
         fetchAnalytics();
-    }, [year, semester]);
+    }, [year, semester, section]);
 
     const handleExport = async (format) => {
         setExporting(true);
         try {
-            const response = await api.get(`/hod/export/${format}?year=${year}&semester=${semester}`, {
+            const response = await api.get(`/hod/export/${format}?year=${year}&semester=${semester}&section=${section}`, {
                 responseType: 'blob',
             });
             const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -398,6 +399,19 @@ const HodDashboard = () => {
                                 <option value={1}>Semester I</option>
                                 <option value={2}>Semester II</option>
                                 <option value={5}>Semester V</option>
+                            </select>
+                        </div>
+                        <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-xl border border-gray-100">
+                            <FaLayerGroup className="text-gray-400 text-xs" />
+                            <select
+                                value={section}
+                                onChange={(e) => setSection(e.target.value)}
+                                className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer text-gray-700"
+                            >
+                                <option value="All">All Sections</option>
+                                <option value="A">Section A</option>
+                                <option value="B">Section B</option>
+                                <option value="C">Section C</option>
                             </select>
                         </div>
                     </div>
