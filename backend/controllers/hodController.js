@@ -5,7 +5,7 @@ const Faculty = require('../models/Faculty');
 const Subject = require('../models/Subject');
 const PDFDocument = require('pdfkit');
 const ExcelJS = require('exceljs');
-const { Document, Packer, Paragraph, TextRun, AlignmentType, ImageRun } = require('docx');
+const { Document, Packer, Paragraph, TextRun, AlignmentType, ImageRun, PageBreak } = require('docx');
 const fs = require('fs');
 const path = require('path');
 
@@ -385,10 +385,24 @@ const exportPDF = asyncHandler(async (req, res) => {
         doc.fontSize(20).font('Helvetica-Bold').fillColor('#000').text('FEEDBACK SYSTEM', 0, yPosition, { align: 'center', width: 595.28 });
         yPosition += 40;
 
-        drawGrid(`${basePath} - (Theory) FEED BACK - II`, analytics.detailedReport?.theory || [], true);
+        const theoryData = analytics.detailedReport?.theory || [];
+        const labData = analytics.detailedReport?.lab || [];
 
-        if (yPosition + 100 > 750) { doc.addPage(); yPosition = 50; }
-        drawGrid(`${basePath} - (Laboratory) FEED BACK - II`, analytics.detailedReport?.lab || [], false);
+        if (theoryData.length > 0) {
+            drawGrid(`${basePath} - (Theory) FEED BACK - II`, theoryData, true);
+        }
+
+        if (theoryData.length > 0 && labData.length > 0) {
+            doc.addPage();
+            yPosition = 50;
+            // Re-draw header banner if we added a new page to keep it consistent
+            if (fs.existsSync(logoPath)) doc.image(logoPath, 0, 0, { width: 595.28, height: 150 });
+            yPosition += 120; // push grid down past the new logo
+        }
+
+        if (labData.length > 0) {
+            drawGrid(`${basePath} - (Laboratory) FEED BACK - II`, labData, false);
+        }
 
     } // end sectionsToExport loop
 
@@ -437,66 +451,67 @@ const exportExcel = asyncHandler(async (req, res) => {
         const currentSection = sectionsToExport[i];
         const analytics = sectionAnalyticsList[i];
 
-        const sheetName = sectionsToExport.length > 1 ? `Section ${currentSection}` : 'Feedback Report';
-        const sheet = workbook.addWorksheet(sheetName, {
-            pageSetup: { paperSize: 9, orientation: 'portrait' }
-        });
+        const yearLabel = year === 2 ? 'II' : year === 3 ? 'III' : 'IV';
+        const semLabel = semester === 1 ? 'I' : 'II';
+        const basePath = `2025-26 - AIML - ${yearLabel} - ${semLabel} - ${currentSection}`;
 
-        // Add Logo (Covering Columns A-D, Rows 1-5)
-        const logoPath = path.join(__dirname, '..', 'logo.png');
-        const startDataRow = 7; // Shift content down
+        const renderItems = [
+            { type: 'Theory', title: `${basePath} - (Theory) FEED BACK - II`, data: analytics.detailedReport?.theory || [], numParams: 10 },
+            { type: 'Lab', title: `${basePath} - (Laboratory) FEED BACK - II`, data: analytics.detailedReport?.lab || [], numParams: 8 }
+        ];
 
-        if (fs.existsSync(logoPath)) {
-            const logoId = workbook.addImage({
-                filename: logoPath,
-                extension: 'png',
+        renderItems.forEach(item => {
+            if (item.data.length === 0) return;
+
+            const sheetName = sectionsToExport.length > 1 ? `Sec ${currentSection} - ${item.type}` : `${item.type} Report`;
+            const sheet = workbook.addWorksheet(sheetName, {
+                pageSetup: { paperSize: 9, orientation: 'portrait' }
             });
-            sheet.addImage(logoId, {
-                tl: { col: 0, row: 0 },
-                br: { col: 4, row: 5 } // Covers A1 to D5
-            });
-        }
 
-        // Header Section (Shifted)
-        const titleRow = startDataRow;
-        sheet.mergeCells(`A${titleRow}:D${titleRow + 2}`);
-        const titleCell = sheet.getCell(`A${titleRow}`);
-        titleCell.value = 'Department of AIML\nFeedback Analysis Report';
-        titleCell.font = { name: 'Calibri', size: 20, bold: true, color: { argb: 'FF1e40af' } };
-        titleCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+            const logoPath = path.join(__dirname, '..', 'logo.png');
+            const startDataRow = 7;
 
-        // Report Info (Shifted)
-        const infoRow = titleRow + 4;
-        sheet.getRow(infoRow).height = 25;
-        sheet.mergeCells(`A${infoRow}:D${infoRow}`);
-        const infoCell = sheet.getCell(`A${infoRow}`);
-        infoCell.value = `Academic Year: ${year} | Semester: ${semester} | Section: ${currentSection} | Generated: ${new Date().toLocaleDateString('en-IN')}`;
-        infoCell.font = { name: 'Calibri', size: 12, bold: true };
-        infoCell.alignment = { vertical: 'middle', horizontal: 'center' };
-        infoCell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFe5e7eb' }
-        };
+            if (fs.existsSync(logoPath)) {
+                const logoId = workbook.addImage({
+                    filename: logoPath,
+                    extension: 'png',
+                });
+                sheet.addImage(logoId, {
+                    tl: { col: 0, row: 0 },
+                    br: { col: 4, row: 5 }
+                });
+            }
 
-        // Build Grid Function for Excel
-        let currentRow = infoRow + 2;
+            const titleRow = startDataRow;
+            sheet.mergeCells(`A${titleRow}:D${titleRow + 2}`);
+            const titleCell = sheet.getCell(`A${titleRow}`);
+            titleCell.value = 'Department of AIML\nFeedback Analysis Report';
+            titleCell.font = { name: 'Calibri', size: 20, bold: true, color: { argb: 'FF1e40af' } };
+            titleCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
 
-        const buildExcelGrid = (title, dataList, isTheory) => {
-            if (!dataList || dataList.length === 0) return;
+            const infoRow = titleRow + 4;
+            sheet.getRow(infoRow).height = 25;
+            sheet.mergeCells(`A${infoRow}:D${infoRow}`);
+            const infoCell = sheet.getCell(`A${infoRow}`);
+            infoCell.value = `Academic Year: ${year} | Semester: ${semester} | Section: ${currentSection} | Generated: ${new Date().toLocaleDateString('en-IN')}`;
+            infoCell.font = { name: 'Calibri', size: 12, bold: true };
+            infoCell.alignment = { vertical: 'middle', horizontal: 'center' };
+            infoCell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FFe5e7eb' }
+            };
+
+            let currentRow = infoRow + 2;
 
             // Title Row
             sheet.getRow(currentRow).height = 25;
-            const numParams = isTheory ? 10 : 8;
-            const lastColChar = String.fromCharCode(65 + 2 + numParams); // e.g. 10 params -> A+2+10 = M (actually A+2(col C)+10(P10)=M)
-            // A=0, B=1, ... wait: col 1=A, col 2=B, col 3=C...
-            // SNO(1), Subject(2), P1-P10(3-12), Total(13). 13 is 'M'.
-            const lastColIndex = 2 + numParams + 1;
+            const lastColIndex = 2 + item.numParams + 1;
             const mergeCode = `A${currentRow}:${String.fromCharCode(64 + lastColIndex)}${currentRow}`;
 
             sheet.mergeCells(mergeCode);
             const titleHeader = sheet.getCell(`A${currentRow}`);
-            titleHeader.value = title;
+            titleHeader.value = item.title;
             titleHeader.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
             titleHeader.alignment = { vertical: 'middle', horizontal: 'center' };
             titleHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFe5e7eb' } };
@@ -505,8 +520,8 @@ const exportExcel = asyncHandler(async (req, res) => {
 
             // Headers
             sheet.getRow(currentRow).height = 20;
-            const headers = ['S.No', isTheory ? 'SUBJECT NAME' : 'LAB SUBJECT NAME'];
-            for (let i = 1; i <= numParams; i++) headers.push(`P${i}`);
+            const headers = ['S.No', item.type === 'Theory' ? 'SUBJECT NAME' : 'LAB SUBJECT NAME'];
+            for (let j = 1; j <= item.numParams; j++) headers.push(`P${j}`);
             headers.push('FEEDBACK (%)');
 
             headers.forEach((header, index) => {
@@ -521,8 +536,8 @@ const exportExcel = asyncHandler(async (req, res) => {
             currentRow++;
 
             // Data Rows
-            dataList.forEach((row, index) => {
-                const rowObj = [index + 1, row.subjectName, ...row.params.slice(0, numParams), `${row.average}%`];
+            item.data.forEach((row, index) => {
+                const rowObj = [index + 1, row.subjectName, ...row.params.slice(0, item.numParams), `${row.average}%`];
                 sheet.getRow(currentRow).values = rowObj;
 
                 for (let col = 1; col <= headers.length; col++) {
@@ -534,20 +549,10 @@ const exportExcel = asyncHandler(async (req, res) => {
                 currentRow++;
             });
 
-            currentRow += 2;
-        };
-
-        const yearLabel = year === 2 ? 'II' : year === 3 ? 'III' : 'IV';
-        const semLabel = semester === 1 ? 'I' : 'II';
-        const basePath = `2025-26 - AIML - ${yearLabel} - ${semLabel} - ${currentSection}`;
-
-        buildExcelGrid(`${basePath} - (Theory) FEED BACK - II`, analytics.detailedReport?.theory || [], true);
-        buildExcelGrid(`${basePath} - (Laboratory) FEED BACK - II`, analytics.detailedReport?.lab || [], false);
-
-        // Adjust column widths
-        sheet.getColumn(1).width = 8;
-        sheet.getColumn(2).width = 40;
-        for (let i = 3; i <= 14; i++) sheet.getColumn(i).width = 8;
+            sheet.getColumn(1).width = 8;
+            sheet.getColumn(2).width = 40;
+            for (let j = 3; j <= 14; j++) sheet.getColumn(j).width = 8;
+        });
     } // end section loop
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -680,8 +685,14 @@ const exportWord = asyncHandler(async (req, res) => {
                         return nodes;
                     };
 
-                    documentElements.push(...buildWordTable(`${basePath} - (Theory) FEED BACK - II`, analytics.detailedReport?.theory || [], true));
-                    documentElements.push(...buildWordTable(`${basePath} - (Laboratory) FEED BACK - II`, analytics.detailedReport?.lab || [], false));
+                    const theoryNodes = buildWordTable(`${basePath} - (Theory) FEED BACK - II`, analytics.detailedReport?.theory || [], true);
+                    const labNodes = buildWordTable(`${basePath} - (Laboratory) FEED BACK - II`, analytics.detailedReport?.lab || [], false);
+
+                    if (theoryNodes.length > 0) documentElements.push(...theoryNodes);
+                    if (theoryNodes.length > 0 && labNodes.length > 0) {
+                        documentElements.push(new Paragraph({ children: [new PageBreak()] }));
+                    }
+                    if (labNodes.length > 0) documentElements.push(...labNodes);
 
                     return documentElements;
                 })(),
