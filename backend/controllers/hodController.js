@@ -215,6 +215,7 @@ const getAnalytics = asyncHandler(async (req, res) => {
             facultyReport: secAnalytics.facultyReport,
             subjectReport: secAnalytics.subjectReport,
             pendingStudents: secAnalytics.pendingStudents,
+            detailedReport: secAnalytics.detailedReport,
         };
     });
 
@@ -233,6 +234,7 @@ const getAnalytics = asyncHandler(async (req, res) => {
         facultyReport: overallAnalytics.facultyReport,
         subjectReport: overallAnalytics.subjectReport,
         pendingStudents: overallAnalytics.pendingStudents,
+        detailedReport: overallAnalytics.detailedReport,
         sectionsData // Attach the grouped datasets directly
     });
 });

@@ -98,7 +98,7 @@ const HodDashboard = () => {
     const views = [
         { id: 'overview', name: 'Overview', icon: <FaChartPie /> },
         { id: 'faculty', name: 'Faculty Wise', icon: <FaChalkboardTeacher /> },
-        { id: 'subject', name: 'Subject Wise', icon: <FaBook /> },
+        { id: 'subject', name: 'Detailed Analysis', icon: <FaBook /> },
         { id: 'pending', name: 'Pending Submissions', icon: <FaLayerGroup /> },
     ];
 
@@ -243,25 +243,65 @@ const HodDashboard = () => {
             case 'subject':
                 return (
                     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                        {analytics.sectionsData?.map((secData, secIdx) => (
-                            <div key={secIdx} className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 p-8">
-                                <h2 className="text-2xl font-black text-gray-900 mb-8">Subject Performance (Section {secData.section})</h2>
-                                <div className="h-[400px]">
-                                    <Bar
-                                        data={{
-                                            labels: (secData.subjectReport || []).map(d => d.name),
-                                            datasets: [{
-                                                label: 'Average Score (%)',
-                                                data: (secData.subjectReport || []).map(d => d.average),
-                                                backgroundColor: '#0f172a',
-                                                borderRadius: 8,
-                                            }]
-                                        }}
-                                        options={chartOptions}
-                                    />
+                        {analytics.sectionsData?.map((secData, secIdx) => {
+                            const theoryData = secData.detailedReport?.theory || [];
+                            const labData = secData.detailedReport?.lab || [];
+
+                            const renderGrid = (title, dataList, isTheory) => {
+                                if (!dataList || dataList.length === 0) return null;
+                                const numParams = isTheory ? 10 : 8;
+
+                                return (
+                                    <div className="mb-8">
+                                        <h3 className="text-xl font-bold text-gray-900 mb-4 bg-gray-100 p-3 rounded-lg text-center uppercase tracking-widest">{title}</h3>
+                                        <div className="overflow-x-auto border border-gray-200 rounded-xl shadow-sm">
+                                            <table className="w-full text-left text-sm whitespace-nowrap">
+                                                <thead className="bg-[#0f172a] text-white">
+                                                    <tr>
+                                                        <th className="px-4 py-3 border-r border-white/20 text-center">S.No</th>
+                                                        <th className="px-4 py-3 border-r border-white/20">{isTheory ? 'SUBJECT NAME' : 'LAB SUBJECT NAME'}</th>
+                                                        {Array.from({ length: numParams }).map((_, i) => (
+                                                            <th key={i} className="px-4 py-3 border-r border-white/20 text-center">P{i + 1}</th>
+                                                        ))}
+                                                        <th className="px-4 py-3 text-center">FEEDBACK (%)</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-200 bg-white">
+                                                    {dataList.map((row, rIdx) => (
+                                                        <tr key={rIdx} className="hover:bg-blue-50/50 transition-colors">
+                                                            <td className="px-4 py-3 border-r border-gray-200 text-center font-bold">{rIdx + 1}</td>
+                                                            <td className="px-4 py-3 border-r border-gray-200 font-semibold">{row.subjectName}</td>
+                                                            {row.params.slice(0, numParams).map((p, pIdx) => (
+                                                                <td key={pIdx} className="px-4 py-3 border-r border-gray-200 text-center">{p}</td>
+                                                            ))}
+                                                            <td className="px-4 py-3 text-center font-black text-blue-600">{row.average}%</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                );
+                            };
+
+                            const yearLabel = year == 2 ? 'II' : year == 3 ? 'III' : 'IV';
+                            const semLabel = semester == 1 ? 'I' : 'II';
+                            const subjectTitleBase = `2025-26 - AIML - ${yearLabel} - ${semLabel} - ${secData.section}`;
+
+                            return (
+                                <div key={secIdx} className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 p-8">
+                                    <h2 className="text-3xl font-black text-gray-900 mb-8 border-b pb-4">Detailed Analysis (Section {secData.section})</h2>
+                                    {renderGrid(`${subjectTitleBase} - (Theory) FEED BACK - II`, theoryData, true)}
+                                    {renderGrid(`${subjectTitleBase} - (Laboratory) FEED BACK - II`, labData, false)}
+
+                                    {theoryData.length === 0 && labData.length === 0 && (
+                                        <div className="text-center py-10 text-gray-400 font-medium bg-gray-50 rounded-xl">
+                                            No detailed feedback gathered for this section yet.
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 );
 
