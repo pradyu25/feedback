@@ -15,13 +15,18 @@ const getStudentDashboard = asyncHandler(async (req, res) => {
         section: student.section,
     }).populate('facultyId', 'name');
 
+    const subjectIds = subjects.map(s => s._id);
+
+    // Batch fetch all feedbacks to prevent N+1 query performance bottleneck
+    const feedbacks = await Feedback.find({
+        studentId: student._id,
+        subjectId: { $in: subjectIds },
+    });
+
     const feedbackStatus = [];
 
     for (const subject of subjects) {
-        const feedback = await Feedback.findOne({
-            studentId: student._id,
-            subjectId: subject._id,
-        });
+        const feedback = feedbacks.find(f => f.subjectId.toString() === subject._id.toString());
 
         let status = 'not submitted';
         let canResubmit = true;

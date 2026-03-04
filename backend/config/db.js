@@ -10,9 +10,9 @@ const connectDB = async () => {
         }
 
         const conn = await mongoose.connect(process.env.MONGODB_URI, {
-            // useNewUrlParser: true, // Deprecated in Mongoose 6+
-            // useUnifiedTopology: true, // Deprecated in Mongoose 6+
             family: 4, // Force IPv4
+            maxPoolSize: 500, // Handle massive spikes of DB queries gracefully without throttling
+            serverSelectionTimeoutMS: 5000,
         });
 
         console.log(`MongoDB Connected: ${conn.connection.host}`);

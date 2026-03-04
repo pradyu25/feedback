@@ -14,21 +14,22 @@ const authUser = asyncHandler(async (req, res) => {
         throw new Error('Please provide username and password');
     }
 
-    const safeUsername = String(username).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const upperUsername = String(username).toUpperCase();
 
     let user;
     let role;
 
-    // Check if student (Case Insensitive)
+    // Check if student (Exact match on indexed uppercase Roll ID is instantly fast)
     const student = await Student.findOne({
-        rollId: { $regex: new RegExp(`^${safeUsername}$`, 'i') }
+        rollId: upperUsername
     });
 
     if (student) {
         user = student;
         role = 'student';
     } else {
-        // Check if admin/hod (Case Insensitive)
+        // Check if admin/hod (Case Insensitive regex is fine for small Users collection)
+        const safeUsername = String(username).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const adminHod = await User.findOne({
             username: { $regex: new RegExp(`^${safeUsername}$`, 'i') }
         });
