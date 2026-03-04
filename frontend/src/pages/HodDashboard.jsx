@@ -28,8 +28,7 @@ const chartOptions = {
 
 const HodDashboard = () => {
     const [year, setYear] = useState(3);
-    const [semester, setSemester] = useState(5);
-    const [section, setSection] = useState('All');
+    const [semester, setSemester] = useState(1);
     const [analytics, setAnalytics] = useState(null);
     const [loading, setLoading] = useState(false);
     const [exporting, setExporting] = useState(false);
@@ -48,7 +47,7 @@ const HodDashboard = () => {
         const fetchAnalytics = async () => {
             setLoading(true);
             try {
-                const { data } = await api.get(`/hod/analytics?year=${year}&semester=${semester}&section=${section}`);
+                const { data } = await api.get(`/hod/analytics?year=${year}&semester=${semester}`);
                 setAnalytics(data);
             } catch (err) {
                 console.error(err);
@@ -58,12 +57,12 @@ const HodDashboard = () => {
         };
 
         fetchAnalytics();
-    }, [year, semester, section]);
+    }, [year, semester]);
 
     const handleExport = async (format) => {
         setExporting(true);
         try {
-            const response = await api.get(`/hod/export/${format}?year=${year}&semester=${semester}&section=${section}`, {
+            const response = await api.get(`/hod/export/${format}?year=${year}&semester=${semester}`, {
                 responseType: 'blob',
             });
             const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -109,149 +108,160 @@ const HodDashboard = () => {
         switch (activeView) {
             case 'pending':
                 return (
-                    <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 overflow-hidden">
-                        <div className="p-8 border-b border-gray-100 flex justify-between items-center">
-                            <div>
-                                <h2 className="text-2xl font-black text-gray-900">Pending Submissions</h2>
-                                <p className="text-gray-500">Students who have not yet completed all feedback.</p>
+                    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {analytics.sectionsData?.map((secData, secIdx) => (
+                            <div key={secIdx} className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 overflow-hidden">
+                                <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                                    <div>
+                                        <h2 className="text-2xl font-black text-gray-900">Pending Submissions (Section {secData.section})</h2>
+                                        <p className="text-gray-500">Students who have not yet completed all feedback.</p>
+                                    </div>
+                                    <div className="bg-red-50 text-red-600 px-4 py-2 rounded-lg font-bold">
+                                        Count: {secData.pendingStudents?.length || 0}
+                                    </div>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left">
+                                        <thead className="bg-gray-50 text-gray-400 text-[10px] uppercase font-black tracking-widest border-y border-gray-100">
+                                            <tr>
+                                                <th className="px-8 py-4">Roll ID</th>
+                                                <th className="px-8 py-4">Student Name</th>
+                                                <th className="px-8 py-4 text-center">Progress</th>
+                                                <th className="px-8 py-4 text-center">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {(secData.pendingStudents || []).map((s, idx) => (
+                                                <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                                                    <td className="px-8 py-6 font-bold text-gray-900">{s.rollId}</td>
+                                                    <td className="px-8 py-6 text-gray-600">{s.name}</td>
+                                                    <td className="px-8 py-6 text-center font-bold">
+                                                        {s.completed} / {s.required}
+                                                    </td>
+                                                    <td className="px-8 py-6 text-center">
+                                                        <span className="inline-block px-3 py-1 rounded-lg text-sm font-bold bg-orange-100 text-orange-700">
+                                                            Pending
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {(!secData.pendingStudents || secData.pendingStudents.length === 0) && (
+                                                <tr>
+                                                    <td colSpan="4" className="px-8 py-12 text-center text-gray-400 font-medium bg-green-50/10">
+                                                        All students in Section {secData.section} have submitted their feedback! 🎉
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
-                            <div className="bg-red-50 text-red-600 px-4 py-2 rounded-lg font-bold">
-                                Count: {analytics.pendingStudents?.length || 0}
-                            </div>
-                        </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left">
-                                <thead className="bg-gray-50 text-gray-400 text-[10px] uppercase font-black tracking-widest">
-                                    <tr>
-                                        <th className="px-8 py-4">Roll ID</th>
-                                        <th className="px-8 py-4">Student Name</th>
-                                        <th className="px-8 py-4 text-center">Progress</th>
-                                        <th className="px-8 py-4 text-center">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {(analytics.pendingStudents || []).map((s, idx) => (
-                                        <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                                            <td className="px-8 py-6 font-bold text-gray-900">{s.rollId}</td>
-                                            <td className="px-8 py-6 text-gray-600">{s.name}</td>
-                                            <td className="px-8 py-6 text-center font-bold">
-                                                {s.completed} / {s.required}
-                                            </td>
-                                            <td className="px-8 py-6 text-center">
-                                                <span className="inline-block px-3 py-1 rounded-lg text-sm font-bold bg-orange-100 text-orange-700">
-                                                    Pending
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {(!analytics.pendingStudents || analytics.pendingStudents.length === 0) && (
-                                        <tr>
-                                            <td colSpan="4" className="px-8 py-12 text-center text-gray-400 font-medium">
-                                                All students have submitted their feedback! 🎉
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
+                        ))}
                     </div>
                 );
 
             case 'faculty':
                 return (
-                    <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 overflow-hidden">
-                        <div className="p-8 border-b border-gray-100">
-                            <h2 className="text-2xl font-black text-gray-900">Faculty Performance</h2>
-                            <p className="text-gray-500">Detailed breakdown of faculty scores. Click rows for question-wise analysis.</p>
-                        </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left">
-                                <thead className="bg-gray-50 text-gray-400 text-[10px] uppercase font-black tracking-widest">
-                                    <tr>
-                                        <th className="px-8 py-4">Name</th>
-                                        <th className="px-8 py-4 text-center">Avg Score</th>
-                                        <th className="px-8 py-4 text-center">Status</th>
-                                        <th className="px-8 py-4 text-right">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {(analytics.facultyReport || []).map((f, idx) => (
-                                        <>
-                                            <tr
-                                                key={idx}
-                                                onClick={() => toggleFacultyExpand(idx)}
-                                                className="hover:bg-gray-50 cursor-pointer transition-colors group"
-                                            >
-                                                <td className="px-8 py-6 font-bold text-gray-900">{f.name}</td>
-                                                <td className="px-8 py-6 text-center">
-                                                    <span className={`inline-block px-3 py-1 rounded-lg text-sm font-bold ${f.average >= 90 ? 'bg-green-100 text-green-700' :
-                                                        f.average >= 75 ? 'bg-blue-100 text-blue-700' :
-                                                            'bg-orange-100 text-orange-700'
-                                                        }`}>
-                                                        {f.average}%
-                                                    </span>
-                                                </td>
-                                                <td className="px-8 py-6 text-center">
-                                                    {f.average >= 90 ? 'Excellent' : f.average >= 75 ? 'Good' : 'Needs Improvement'}
-                                                </td>
-                                                <td className="px-8 py-6 text-right text-gray-400">
-                                                    {expandedFaculty === idx ? <FaChevronUp /> : <FaChevronDown />}
-                                                </td>
+                    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {analytics.sectionsData?.map((secData, secIdx) => (
+                            <div key={secIdx} className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 overflow-hidden">
+                                <div className="p-8 border-b border-gray-100 bg-gray-50/50">
+                                    <h2 className="text-2xl font-black text-gray-900">Faculty Performance (Section {secData.section})</h2>
+                                    <p className="text-gray-500">Detailed breakdown of faculty scores. Click rows for question-wise analysis.</p>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left">
+                                        <thead className="bg-gray-50 text-gray-400 text-[10px] uppercase font-black tracking-widest border-y border-gray-100">
+                                            <tr>
+                                                <th className="px-8 py-4">Name</th>
+                                                <th className="px-8 py-4 text-center">Avg Score</th>
+                                                <th className="px-8 py-4 text-center">Status</th>
+                                                <th className="px-8 py-4 text-right">Action</th>
                                             </tr>
-                                            {expandedFaculty === idx && f.questions && (
-                                                <tr className="bg-gray-50/50">
-                                                    <td colSpan="4" className="px-8 py-6">
-                                                        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-                                                            <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Question Wise Breakdown</h4>
-                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                                {f.questions.map((q, qIdx) => (
-                                                                    <div key={qIdx} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                                                        <span className="text-sm font-medium text-gray-600">Q{q.questionIndex + 1}</span>
-                                                                        <div className="flex items-center gap-3">
-                                                                            <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
-                                                                                <div
-                                                                                    className="h-full bg-black rounded-full"
-                                                                                    style={{ width: `${q.average}%` }}
-                                                                                ></div>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {(secData.facultyReport || []).map((f, idx) => (
+                                                <div key={idx} className="contents">
+                                                    <tr
+                                                        onClick={() => toggleFacultyExpand(`${secIdx}-${idx}`)}
+                                                        className="hover:bg-gray-50 cursor-pointer transition-colors group"
+                                                    >
+                                                        <td className="px-8 py-6 font-bold text-gray-900">{f.name}</td>
+                                                        <td className="px-8 py-6 text-center">
+                                                            <span className={`inline-block px-3 py-1 rounded-lg text-sm font-bold ${f.average >= 90 ? 'bg-green-100 text-green-700' :
+                                                                f.average >= 75 ? 'bg-blue-100 text-blue-700' :
+                                                                    'bg-orange-100 text-orange-700'
+                                                                }`}>
+                                                                {f.average}%
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-8 py-6 text-center">
+                                                            {f.average >= 90 ? 'Excellent' : f.average >= 75 ? 'Good' : 'Needs Improvement'}
+                                                        </td>
+                                                        <td className="px-8 py-6 text-right text-gray-400">
+                                                            {expandedFaculty === `${secIdx}-${idx}` ? <FaChevronUp /> : <FaChevronDown />}
+                                                        </td>
+                                                    </tr>
+                                                    {expandedFaculty === `${secIdx}-${idx}` && f.questions && (
+                                                        <tr className="bg-gray-50/50">
+                                                            <td colSpan="4" className="px-8 py-6">
+                                                                <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+                                                                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Question Wise Breakdown</h4>
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                        {f.questions.map((q, qIdx) => (
+                                                                            <div key={qIdx} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                                                                <span className="text-sm font-medium text-gray-600">Q{q.questionIndex + 1}</span>
+                                                                                <div className="flex items-center gap-3">
+                                                                                    <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                                                                        <div
+                                                                                            className="h-full bg-black rounded-full"
+                                                                                            style={{ width: `${q.average}%` }}
+                                                                                        ></div>
+                                                                                    </div>
+                                                                                    <span className="text-sm font-bold text-gray-900">{q.average}%</span>
+                                                                                </div>
                                                                             </div>
-                                                                            <span className="text-sm font-bold text-gray-900">{q.average}%</span>
-                                                                        </div>
+                                                                        ))}
+                                                                        {(!f.questions || f.questions.length === 0) && (
+                                                                            <p className="text-sm text-gray-400 italic">No detailed question data available.</p>
+                                                                        )}
                                                                     </div>
-                                                                ))}
-                                                                {(!f.questions || f.questions.length === 0) && (
-                                                                    <p className="text-sm text-gray-400 italic">No detailed question data available.</p>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            )}
-                                        </>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 );
 
             case 'subject':
                 return (
-                    <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 p-8">
-                        <h2 className="text-2xl font-black text-gray-900 mb-8">Subject Performance</h2>
-                        <div className="h-[400px]">
-                            <Bar
-                                data={{
-                                    labels: (analytics.subjectReport || []).map(d => d.name),
-                                    datasets: [{
-                                        label: 'Average Score (%)',
-                                        data: (analytics.subjectReport || []).map(d => d.average),
-                                        backgroundColor: '#0f172a',
-                                        borderRadius: 8,
-                                    }]
-                                }}
-                                options={chartOptions}
-                            />
-                        </div>
+                    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {analytics.sectionsData?.map((secData, secIdx) => (
+                            <div key={secIdx} className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 p-8">
+                                <h2 className="text-2xl font-black text-gray-900 mb-8">Subject Performance (Section {secData.section})</h2>
+                                <div className="h-[400px]">
+                                    <Bar
+                                        data={{
+                                            labels: (secData.subjectReport || []).map(d => d.name),
+                                            datasets: [{
+                                                label: 'Average Score (%)',
+                                                data: (secData.subjectReport || []).map(d => d.average),
+                                                backgroundColor: '#0f172a',
+                                                borderRadius: 8,
+                                            }]
+                                        }}
+                                        options={chartOptions}
+                                    />
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 );
 
@@ -398,20 +408,6 @@ const HodDashboard = () => {
                             >
                                 <option value={1}>Semester I</option>
                                 <option value={2}>Semester II</option>
-                                <option value={5}>Semester V</option>
-                            </select>
-                        </div>
-                        <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-xl border border-gray-100">
-                            <FaLayerGroup className="text-gray-400 text-xs" />
-                            <select
-                                value={section}
-                                onChange={(e) => setSection(e.target.value)}
-                                className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer text-gray-700"
-                            >
-                                <option value="All">All Sections</option>
-                                <option value="A">Section A</option>
-                                <option value="B">Section B</option>
-                                <option value="C">Section C</option>
                             </select>
                         </div>
                     </div>

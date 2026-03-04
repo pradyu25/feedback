@@ -24,8 +24,10 @@ const calculateAnalytics = async (query) => {
         studentsFilter.section = query.section;
     }
 
-    const students = await Student.find(studentsFilter);
-    const subjects = await Subject.find(subjectsFilter);
+    const [students, subjects] = await Promise.all([
+        Student.find(studentsFilter),
+        Subject.find(subjectsFilter)
+    ]);
 
     const feedbackFilter = { ...baseFilter };
     if (query.section && query.section !== 'All') {
@@ -132,23 +134,52 @@ const calculateAnalytics = async (query) => {
 // @route   GET /api/hod/analytics
 // @access  Private (HOD)
 const getAnalytics = asyncHandler(async (req, res) => {
-    const { year, semester, section } = req.query;
-    const analytics = await calculateAnalytics({ year, semester, section });
+    const { year, semester } = req.query;
 
-    const countFilter = {};
-    if (year) countFilter.year = parseInt(year);
-    if (section && section !== 'All') countFilter.section = section;
+    const filter = {};
+    if (year) filter.year = parseInt(year);
+    if (semester) filter.semester = parseInt(semester);
 
-    const totalStudents = await Student.countDocuments(countFilter);
+    // 1. Get Distinct Sections
+    const distinctSections = await Subject.find(filter).distinct('section');
+    const sectionsToProcess = distinctSections.length > 0 ? distinctSections.sort() : ['A'];
+
+    // 2. Compute Individual Section Analytics and Overall combined in parallel
+    const sectionPromises = sectionsToProcess.map(async (sec) => {
+        const countFilter = { ...filter, section: sec };
+        const [secAnalytics, secTotalStudents] = await Promise.all([
+            calculateAnalytics({ year, semester, section: sec }),
+            Student.countDocuments(countFilter)
+        ]);
+
+        return {
+            section: sec,
+            totalStudents: secTotalStudents,
+            completedCount: secAnalytics.completedCount,
+            inProgressCount: 0,
+            notSubmittedCount: secTotalStudents - secAnalytics.completedCount,
+            facultyReport: secAnalytics.facultyReport,
+            subjectReport: secAnalytics.subjectReport,
+            pendingStudents: secAnalytics.pendingStudents,
+        };
+    });
+
+    const [sectionsData, overallAnalytics] = await Promise.all([
+        Promise.all(sectionPromises),
+        calculateAnalytics({ year, semester })
+    ]);
+
+    const totalYearStudents = sectionsData.reduce((sum, d) => sum + d.totalStudents, 0);
 
     res.json({
-        totalStudents,
-        completedCount: analytics.completedCount,
+        totalStudents: totalYearStudents,
+        completedCount: overallAnalytics.completedCount,
         inProgressCount: 0,
-        notSubmittedCount: totalStudents - analytics.completedCount,
-        facultyReport: analytics.facultyReport,
-        subjectReport: analytics.subjectReport,
-        pendingStudents: analytics.pendingStudents,
+        notSubmittedCount: totalYearStudents - overallAnalytics.completedCount,
+        facultyReport: overallAnalytics.facultyReport,
+        subjectReport: overallAnalytics.subjectReport,
+        pendingStudents: overallAnalytics.pendingStudents,
+        sectionsData // Attach the grouped datasets directly
     });
 });
 
@@ -169,7 +200,7 @@ const exportPDF = asyncHandler(async (req, res) => {
         sectionsToExport = distinctSections.length > 0 ? distinctSections.sort() : ['All'];
     }
 
-    const doc = new PDFDocument({ margin: 0, size: 'A4' }); // Start with 0 margin
+    const doc = new PDFDocument({ margin: 0, size: 'A4', bufferPages: true }); // Enable page buffering for footer loop
     const filename = `Feedback_Report_Y${year}_S${semester}.pdf`;
 
     res.setHeader('Content-disposition', `attachment; filename=${filename}`);
@@ -177,9 +208,14 @@ const exportPDF = asyncHandler(async (req, res) => {
 
     doc.pipe(res);
 
+    // Fetch all section analytics concurrently
+    const sectionAnalyticsList = await Promise.all(
+        sectionsToExport.map(currentSection => calculateAnalytics({ year, semester, section: currentSection }))
+    );
+
     for (let i = 0; i < sectionsToExport.length; i++) {
         const currentSection = sectionsToExport[i];
-        const analytics = await calculateAnalytics({ year, semester, section: currentSection });
+        const analytics = sectionAnalyticsList[i];
 
         if (i > 0) {
             doc.addPage();
@@ -318,9 +354,14 @@ const exportExcel = asyncHandler(async (req, res) => {
 
     const workbook = new ExcelJS.Workbook();
 
+    // Fetch all section analytics concurrently
+    const sectionAnalyticsList = await Promise.all(
+        sectionsToExport.map(currentSection => calculateAnalytics({ year, semester, section: currentSection }))
+    );
+
     for (let i = 0; i < sectionsToExport.length; i++) {
         const currentSection = sectionsToExport[i];
-        const analytics = await calculateAnalytics({ year, semester, section: currentSection });
+        const analytics = sectionAnalyticsList[i];
 
         const sheetName = sectionsToExport.length > 1 ? `Section ${currentSection}` : 'Feedback Report';
         const sheet = workbook.addWorksheet(sheetName, {
@@ -525,7 +566,7 @@ const exportWord = asyncHandler(async (req, res) => {
 
     const { Table, TableCell, TableRow, WidthType, BorderStyle } = require('docx');
 
-    const logoPath = path.join(__dirname, '..', 'logo.jpg');
+    const logoPath = path.join(__dirname, '..', 'logo.png');
     let logoImage = null;
     if (fs.existsSync(logoPath)) {
         logoImage = new ImageRun({
@@ -539,9 +580,14 @@ const exportWord = asyncHandler(async (req, res) => {
 
     const wordSections = [];
 
+    // Fetch all section analytics concurrently
+    const sectionAnalyticsList = await Promise.all(
+        sectionsToExport.map(currentSection => calculateAnalytics({ year, semester, section: currentSection }))
+    );
+
     for (let i = 0; i < sectionsToExport.length; i++) {
         const currentSection = sectionsToExport[i];
-        const analytics = await calculateAnalytics({ year, semester, section: currentSection });
+        const analytics = sectionAnalyticsList[i];
 
         wordSections.push({
             properties: {
