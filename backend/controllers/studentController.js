@@ -101,14 +101,6 @@ const submitFeedback = asyncHandler(async (req, res) => {
     const { subjectId, responses } = req.body;
     const student = req.user;
 
-    const minAttendance = 75;
-
-    const currentAttendance = student.attendancePercentage ?? 0;
-    if (currentAttendance < minAttendance) {
-        res.status(403);
-        throw new Error(`Your attendance is ${currentAttendance}%. Minimum required is ${minAttendance}% to submit feedback.`);
-    }
-
     const subject = await Subject.findById(subjectId);
 
     if (!subject) {
