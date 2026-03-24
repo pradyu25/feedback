@@ -261,7 +261,7 @@ const HodDashboard = () => {
                                                         <th className="px-4 py-3 border-r border-white/20 text-center">S.No</th>
                                                         <th className="px-4 py-3 border-r border-white/20">{isTheory ? 'SUBJECT NAME' : 'LAB SUBJECT NAME'}</th>
                                                         {Array.from({ length: numParams }).map((_, i) => (
-                                                            <th key={i} className="px-4 py-3 border-r border-white/20 text-center">P{i + 1}</th>
+                                                            <th key={i} className="px-4 py-3 border-r border-white/20 text-center">p{String(i + 1).padStart(2, '0')}</th>
                                                         ))}
                                                         <th className="px-4 py-3 text-center">FEEDBACK (%)</th>
                                                     </tr>
@@ -297,6 +297,11 @@ const HodDashboard = () => {
                                     {theoryData.length === 0 && labData.length === 0 && (
                                         <div className="text-center py-10 text-gray-400 font-medium bg-gray-50 rounded-xl">
                                             No detailed feedback gathered for this section yet.
+                                        </div>
+                                    )}
+                                    {labData.length === 0 && (
+                                        <div className="p-12 text-center bg-white/5 rounded-2xl border border-white/10 mt-6">
+                                            <p className="text-gray-400 font-medium">No lab feedback submitted yet. Students will now see lab subjects in their portals.</p>
                                         </div>
                                     )}
                                 </div>

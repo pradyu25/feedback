@@ -42,6 +42,9 @@ const uploadExcel = asyncHandler(async (req, res) => {
         const sheet = workbook.Sheets[sheetNames[0]]; // Usually first sheet
         const rows = xlsx.utils.sheet_to_json(sheet, { header: 'A', range: 0, limit: 100, defval: '' });
 
+        // Track seen subject+section combinations to detect duplicates = lab
+        const seenSubjects = {}; // key: "subjectName-section", value: count
+
         for (const row of rows) {
             if (row.A && row.E && row.B && row.C) {
                 const subjectName = row.A.toString().trim();
@@ -65,9 +68,22 @@ const uploadExcel = asyncHandler(async (req, res) => {
                         results.faculty++;
                     }
 
-                    // Upsert Subject
-                    const type = subjectName.toUpperCase().includes('LAB') ? 'lab' : 'theory';
-                    const subjectCode = `${subjectName.substring(0, 3).toUpperCase()}-${year}-${semester}-${section}`;
+                    // Detect lab: if subject name includes 'LAB' explicitly → lab
+                    // Otherwise: first occurrence of same subject+section = theory, second = lab
+                    const seenKey = `${subjectName.toUpperCase()}-${section}`;
+                    seenSubjects[seenKey] = (seenSubjects[seenKey] || 0) + 1;
+
+                    let type;
+                    if (subjectName.toUpperCase().includes('LAB')) {
+                        type = 'lab';
+                    } else {
+                        // Second occurrence of same subject in same section → lab
+                        type = seenSubjects[seenKey] > 1 ? 'lab' : 'theory';
+                    }
+
+                    // Use type suffix in code so theory and lab don't overwrite each other
+                    const typeSuffix = type === 'lab' ? 'L' : 'T';
+                    const subjectCode = `${subjectName.substring(0, 3).toUpperCase()}-${year}-${semester}-${section}-${typeSuffix}`;
 
                     await Subject.findOneAndUpdate(
                         { subjectCode },

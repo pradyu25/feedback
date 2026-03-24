@@ -3,11 +3,36 @@ const Feedback = require('../models/Feedback');
 const Student = require('../models/Student');
 const Faculty = require('../models/Faculty');
 const Subject = require('../models/Subject');
+const Question = require('../models/Question');
 const PDFDocument = require('pdfkit');
 const ExcelJS = require('exceljs');
 const { Document, Packer, Paragraph, TextRun, AlignmentType, ImageRun, PageBreak } = require('docx');
 const fs = require('fs');
 const path = require('path');
+
+// Helper to convert year number to Roman numeral label
+const yearToRoman = (y) => {
+    const n = parseInt(y);
+    if (n === 1) return 'I';
+    if (n === 2) return 'II';
+    if (n === 3) return 'III';
+    if (n === 4) return 'IV';
+    return String(y);
+};
+
+// Helper to convert semester number to Roman numeral label
+const semToRoman = (s) => {
+    const n = parseInt(s);
+    if (n === 1) return 'I';
+    if (n === 2) return 'II';
+    return String(s);
+};
+
+// Helper to zero-pad parameter labels: p01, p02, ..., p10
+const paramLabel = (index) => {
+    const num = index + 1;
+    return `p${num.toString().padStart(2, '0')}`;
+};
 
 // Helper for analytics
 const calculateAnalytics = async (query) => {
@@ -59,7 +84,6 @@ const calculateAnalytics = async (query) => {
     students.forEach(s => {
         const required = sectionSubjectCount[s.section] || 0;
         const actual = studentFeedbackCount[s._id.toString()] || 0;
-        // If there are required subjects and student has done >= required, count as 1
         if (required > 0 && actual >= required) {
             completedCount++;
         } else {
@@ -157,7 +181,7 @@ const calculateAnalytics = async (query) => {
 
             for (let i = 0; i < numParams; i++) {
                 if (paramStats[i] && paramStats[i].count > 0) {
-                    params.push(((paramStats[i].sum / paramStats[i].count) * 20).toFixed(1)); // e.g. 79.7
+                    params.push(((paramStats[i].sum / paramStats[i].count) * 20).toFixed(1));
                 } else {
                     params.push('-');
                 }
@@ -239,6 +263,18 @@ const getAnalytics = asyncHandler(async (req, res) => {
     });
 });
 
+// Helper: Fetch active question texts for theory and lab
+const fetchQuestionTexts = async () => {
+    const [theoryQ, labQ] = await Promise.all([
+        Question.findOne({ type: 'theory', isActive: true }),
+        Question.findOne({ type: 'lab', isActive: true })
+    ]);
+    return {
+        theory: theoryQ ? theoryQ.questions : [],
+        lab: labQ ? labQ.questions : []
+    };
+};
+
 // @desc    Export analytics as PDF
 // @route   GET /api/hod/export/pdf
 // @access  Private (HOD)
@@ -256,7 +292,7 @@ const exportPDF = asyncHandler(async (req, res) => {
         sectionsToExport = distinctSections.length > 0 ? distinctSections.sort() : ['All'];
     }
 
-    const doc = new PDFDocument({ margin: 0, size: 'A4', bufferPages: true }); // Enable page buffering for footer loop
+    const doc = new PDFDocument({ margin: 0, size: 'A4', layout: 'landscape', bufferPages: true });
     const filename = `Feedback_Report_Y${year}_S${semester}.pdf`;
 
     res.setHeader('Content-disposition', `attachment; filename=${filename}`);
@@ -264,10 +300,14 @@ const exportPDF = asyncHandler(async (req, res) => {
 
     doc.pipe(res);
 
-    // Fetch all section analytics concurrently
-    const sectionAnalyticsList = await Promise.all(
-        sectionsToExport.map(currentSection => calculateAnalytics({ year, semester, section: currentSection }))
-    );
+    // Fetch question texts and all section analytics concurrently
+    const [questionTexts, sectionAnalyticsList] = await Promise.all([
+        fetchQuestionTexts(),
+        Promise.all(sectionsToExport.map(currentSection => calculateAnalytics({ year, semester, section: currentSection })))
+    ]);
+
+    const yearLabel = yearToRoman(year);
+    const semLabel = semToRoman(semester);
 
     for (let i = 0; i < sectionsToExport.length; i++) {
         const currentSection = sectionsToExport[i];
@@ -277,145 +317,226 @@ const exportPDF = asyncHandler(async (req, res) => {
             doc.addPage();
         }
 
-        // Add Logo Banner (Full Width)
+        // Add Logo Banner (Full Width - Landscape A4: ~841.89 x 595.28)
         const logoPath = path.join(__dirname, '..', 'logo.png');
+        const pageWidth = 841.89;
         if (fs.existsSync(logoPath)) {
-            // A4 width ~595.28 points
-            doc.image(logoPath, 0, 0, { width: 595.28, height: 150 });
+            doc.image(logoPath, 0, 0, { width: pageWidth, height: 120 });
         }
 
-        // Header Content (Shifted down)
-        const headerStartY = 170;
+        // Header Content
+        const headerStartY = 130;
 
         // Title
-        doc.font('Helvetica-Bold').fontSize(24).text('Department of AIML', 0, headerStartY, { align: 'center', width: 595.28 });
-        doc.fontSize(20).text('Feedback Analysis Report', 0, headerStartY + 35, { align: 'center', width: 595.28 });
+        doc.font('Helvetica-Bold').fontSize(20).fillColor('#000')
+            .text('Department of AIML', 0, headerStartY, { align: 'center', width: pageWidth });
+        doc.fontSize(16)
+            .text('Feedback Analysis Report', 0, headerStartY + 28, { align: 'center', width: pageWidth });
 
         // Info Box
-        const infoBoxY = headerStartY + 80;
-        doc.rect(50, infoBoxY, 495, 80).fillAndStroke('#f0f0f0', '#333');
+        const infoBoxY = headerStartY + 58;
+        doc.rect(50, infoBoxY, pageWidth - 100, 50).fillAndStroke('#f0f0f0', '#333');
         doc.fillColor('#000')
-            .fontSize(12)
+            .fontSize(10)
             .font('Helvetica-Bold')
-            .text(`Academic Year: ${year}`, 70, infoBoxY + 20)
-            .text(`Semester: ${semester}`, 70, infoBoxY + 40)
-            .text(`Section: ${currentSection}`, 70, infoBoxY + 60)
+            .text(`Academic Year: 2025-26`, 70, infoBoxY + 10)
+            .text(`Year: ${yearLabel}`, 250, infoBoxY + 10)
+            .text(`Semester: ${semLabel}`, 400, infoBoxY + 10)
+            .text(`Section: ${currentSection}`, 550, infoBoxY + 10)
             .text(`Generated: ${new Date().toLocaleDateString('en-IN', {
                 year: 'numeric',
                 month: 'long',
                 day: 'numeric'
-            })}`, 70, infoBoxY + 80);
+            })}`, 70, infoBoxY + 30);
 
-        let yPosition = infoBoxY + 120;
+        let yPosition = infoBoxY + 65;
 
-        // Draw Function
-        const drawGrid = (title, dataList, isTheory) => {
-            if (!dataList || dataList.length === 0) return;
-
-            doc.fontSize(14).font('Helvetica-Bold').fillColor('#000').text(title, 0, yPosition, { align: 'center', width: 595.28 });
-            yPosition += 25;
-
-            const cwSNO = 30;
-            const cwSubj = 150;
-            const numParams = isTheory ? 10 : 8;
-            const cwParam = 24;
-            const cwTotal = 60;
-            const rowHeight = 25;
-
-            const tableWidth = cwSNO + cwSubj + (numParams * cwParam) + cwTotal;
-            const startX = (595.28 - tableWidth) / 2;
-
-            const drawRow = (rowObj, isHeader = false) => {
-                let x = startX;
-                doc.fillColor('#000');
-                if (isHeader) {
-                    doc.fontSize(8).font('Helvetica-Bold');
-                } else {
-                    doc.fontSize(9).font('Helvetica');
-                }
-
-                // SNO
-                doc.rect(x, yPosition, cwSNO, rowHeight).stroke('#333');
-                doc.text(rowObj[0], x, yPosition + 8, { width: cwSNO, align: 'center' });
-                x += cwSNO;
-
-                // Subject Name
-                doc.rect(x, yPosition, cwSubj, rowHeight).stroke('#333');
-                doc.text(rowObj[1], x + 5, yPosition + 8, { width: cwSubj - 10, align: 'left', lineBreak: false });
-                x += cwSubj;
-
-                // Params
-                for (let i = 0; i < numParams; i++) {
-                    doc.rect(x, yPosition, cwParam, rowHeight).stroke('#333');
-                    doc.text(rowObj[2 + i], x, yPosition + 8, { width: cwParam, align: 'center' });
-                    x += cwParam;
-                }
-
-                // Total
-                doc.rect(x, yPosition, cwTotal, rowHeight).stroke('#333');
-                doc.text(rowObj[2 + numParams], x, yPosition + 8, { width: cwTotal, align: 'center' });
-
-                yPosition += rowHeight;
-            };
-
-            // Table Header
-            const headers = ['SNO', isTheory ? 'SUBJECT NAME' : 'LAB SUBJECT NAME'];
-            for (let i = 1; i <= numParams; i++) headers.push(`P${i}`);
-            headers.push('FEEDBACK (%)');
-
-            drawRow(headers, true);
-
-            dataList.forEach((row, idx) => {
-                if (yPosition + rowHeight > 750) {
-                    doc.addPage();
-                    yPosition = 50;
-                    drawRow(headers, true);
-                }
-                const rowObj = [(idx + 1).toString(), row.subjectName, ...row.params.slice(0, numParams), `${row.average}%`];
-                drawRow(rowObj);
-            });
-
-            yPosition += 40;
-        };
-
-        const yearLabel = year === 2 ? 'II' : year === 3 ? 'III' : 'IV';
-        const semLabel = semester === 1 ? 'I' : 'II';
         const basePath = `2025-26 - AIML - ${yearLabel} - ${semLabel} - ${currentSection}`;
-
-        doc.fontSize(20).font('Helvetica-Bold').fillColor('#000').text('FEEDBACK SYSTEM', 0, yPosition, { align: 'center', width: 595.28 });
-        yPosition += 40;
 
         const theoryData = analytics.detailedReport?.theory || [];
         const labData = analytics.detailedReport?.lab || [];
+        const theoryParamCount = 10;
+        const labParamCount = 8;
 
+        // ---- UNIFIED TABLE: Theory + Lab + Questions ----
+        // Calculate column widths for landscape
+        const cwSNO = 28;
+        const cwSubj = 140;
+        const maxParams = Math.max(theoryParamCount, labParamCount);
+        const cwParam = 28;
+        const cwTotal = 55;
+        const cwType = 45;
+
+        const totalColsForTheory = 2 + theoryParamCount + 1 + 1; // SNO + Subject + params + feedback% + type
+        const tableWidth = cwSNO + cwType + cwSubj + (maxParams * cwParam) + cwTotal;
+        const startX = (pageWidth - tableWidth) / 2;
+        const rowHeight = 22;
+
+        // Title
+        doc.fontSize(13).font('Helvetica-Bold').fillColor('#000')
+            .text(`${basePath} - FEEDBACK ANALYSIS`, 0, yPosition, { align: 'center', width: pageWidth });
+        yPosition += 28;
+
+        // Draw a single row
+        const drawTableRow = (cells, isHeader = false, numParams = maxParams) => {
+            let x = startX;
+            doc.fillColor('#000');
+            if (isHeader) {
+                doc.fontSize(7).font('Helvetica-Bold');
+            } else {
+                doc.fontSize(7).font('Helvetica');
+            }
+
+            const colWidths = [cwSNO, cwType, cwSubj];
+            for (let p = 0; p < numParams; p++) colWidths.push(cwParam);
+            colWidths.push(cwTotal);
+
+            cells.forEach((cellText, ci) => {
+                const w = colWidths[ci] || cwParam;
+                if (isHeader) {
+                    doc.rect(x, yPosition, w, rowHeight).fillAndStroke('#e5e7eb', '#333');
+                    doc.fillColor('#000');
+                } else {
+                    doc.rect(x, yPosition, w, rowHeight).stroke('#999');
+                }
+                const align = (ci === 2) ? 'left' : 'center';
+                const textX = (ci === 2) ? x + 3 : x;
+                const textW = (ci === 2) ? w - 6 : w;
+                doc.text(String(cellText), textX, yPosition + 7, { width: textW, align, lineBreak: false });
+                x += w;
+            });
+
+            yPosition += rowHeight;
+        };
+
+        // Ensure page break if needed
+        const ensureSpace = (linesNeeded) => {
+            if (yPosition + (linesNeeded * rowHeight) > 550) {
+                doc.addPage();
+                yPosition = 40;
+                return true;
+            }
+            return false;
+        };
+
+        // ===== THEORY SECTION =====
         if (theoryData.length > 0) {
-            drawGrid(`${basePath} - (Theory) FEED BACK - II`, theoryData, true);
+            ensureSpace(theoryData.length + 3);
+
+            doc.fontSize(10).font('Helvetica-Bold').fillColor('#1e40af')
+                .text(`${basePath} - (Theory) FEEDBACK`, 0, yPosition, { align: 'center', width: pageWidth });
+            yPosition += 20;
+
+            // Header row
+            const theoryHeaders = ['SNO', 'Type', 'SUBJECT NAME'];
+            for (let p = 0; p < theoryParamCount; p++) theoryHeaders.push(paramLabel(p));
+            theoryHeaders.push('FB (%)');
+            drawTableRow(theoryHeaders, true, theoryParamCount);
+
+            // Data rows
+            theoryData.forEach((row, idx) => {
+                ensureSpace(1);
+                const cells = [(idx + 1).toString(), 'Theory', row.subjectName];
+                for (let p = 0; p < theoryParamCount; p++) {
+                    cells.push(row.params[p] || '-');
+                }
+                cells.push(`${row.average}%`);
+                drawTableRow(cells, false, theoryParamCount);
+            });
+
+            yPosition += 15;
         }
 
-        if (theoryData.length > 0 && labData.length > 0) {
-            doc.addPage();
-            yPosition = 50;
-            // Re-draw header banner if we added a new page to keep it consistent
-            if (fs.existsSync(logoPath)) doc.image(logoPath, 0, 0, { width: 595.28, height: 150 });
-            yPosition += 120; // push grid down past the new logo
-        }
-
+        // ===== LAB SECTION =====
         if (labData.length > 0) {
-            drawGrid(`${basePath} - (Laboratory) FEED BACK - II`, labData, false);
+            ensureSpace(labData.length + 3);
+
+            doc.fontSize(10).font('Helvetica-Bold').fillColor('#1e40af')
+                .text(`${basePath} - (Laboratory) FEEDBACK`, 0, yPosition, { align: 'center', width: pageWidth });
+            yPosition += 20;
+
+            // Header row
+            const labHeaders = ['SNO', 'Type', 'LAB SUBJECT NAME'];
+            for (let p = 0; p < labParamCount; p++) labHeaders.push(paramLabel(p));
+            labHeaders.push('FB (%)');
+            drawTableRow(labHeaders, true, labParamCount);
+
+            // Data rows
+            labData.forEach((row, idx) => {
+                ensureSpace(1);
+                const cells = [(idx + 1).toString(), 'Lab', row.subjectName];
+                for (let p = 0; p < labParamCount; p++) {
+                    cells.push(row.params[p] || '-');
+                }
+                cells.push(`${row.average}%`);
+                drawTableRow(cells, false, labParamCount);
+            });
+
+            yPosition += 15;
         }
+
+        // ===== QUESTIONS / PARAMETERS SECTION =====
+        const theoryQs = questionTexts.theory || [];
+        const labQs = questionTexts.lab || [];
+
+        if (theoryQs.length > 0 || labQs.length > 0) {
+            ensureSpace(Math.max(theoryQs.length, labQs.length) + 4);
+
+            doc.fontSize(10).font('Helvetica-Bold').fillColor('#1e40af')
+                .text('FEEDBACK PARAMETERS / QUESTIONS', 0, yPosition, { align: 'center', width: pageWidth });
+            yPosition += 20;
+
+            // Theory Questions
+            if (theoryQs.length > 0) {
+                doc.fontSize(9).font('Helvetica-Bold').fillColor('#000')
+                    .text('Theory Parameters:', startX, yPosition);
+                yPosition += 14;
+
+                theoryQs.forEach((q, idx) => {
+                    ensureSpace(1);
+                    doc.fontSize(8).font('Helvetica').fillColor('#333')
+                        .text(`${paramLabel(idx)} : ${q}`, startX + 10, yPosition, { width: pageWidth - 100 });
+                    yPosition += 13;
+                });
+                yPosition += 8;
+            }
+
+            // Lab Questions
+            if (labQs.length > 0) {
+                doc.fontSize(9).font('Helvetica-Bold').fillColor('#000')
+                    .text('Laboratory Parameters:', startX, yPosition);
+                yPosition += 14;
+
+                labQs.forEach((q, idx) => {
+                    ensureSpace(1);
+                    doc.fontSize(8).font('Helvetica').fillColor('#333')
+                        .text(`${paramLabel(idx)} : ${q}`, startX + 10, yPosition, { width: pageWidth - 100 });
+                    yPosition += 13;
+                });
+                yPosition += 8;
+            }
+        }
+
+        // ===== DEPARTMENT HEAD SIGNATURE =====
+        yPosition += 30;
+        ensureSpace(3);
+        doc.fontSize(11).font('Helvetica-Bold').fillColor('#000')
+            .text('Department Head', pageWidth - 200, yPosition, { width: 150, align: 'center' });
+        doc.fontSize(8).font('Helvetica').fillColor('#666')
+            .text('(Signature)', pageWidth - 200, yPosition + 16, { width: 150, align: 'center' });
 
     } // end sectionsToExport loop
 
-    // Footer
+    // Footer on each page
     const pages = doc.bufferedPageRange();
     for (let i = 0; i < pages.count; i++) {
         doc.switchToPage(i);
-        doc.fontSize(8)
+        doc.fontSize(7)
             .fillColor('#666')
             .text(
                 `Page ${i + 1} of ${pages.count} | Confidential Document | AIML Department`,
                 50,
-                doc.page.height - 50,
+                doc.page.height - 30,
                 { align: 'center', width: doc.page.width - 100 }
             );
     }
@@ -442,117 +563,252 @@ const exportExcel = asyncHandler(async (req, res) => {
 
     const workbook = new ExcelJS.Workbook();
 
-    // Fetch all section analytics concurrently
-    const sectionAnalyticsList = await Promise.all(
-        sectionsToExport.map(currentSection => calculateAnalytics({ year, semester, section: currentSection }))
-    );
+    // Fetch question texts and all section analytics concurrently
+    const [questionTexts, sectionAnalyticsList] = await Promise.all([
+        fetchQuestionTexts(),
+        Promise.all(sectionsToExport.map(currentSection => calculateAnalytics({ year, semester, section: currentSection })))
+    ]);
+
+    const yearLabel = yearToRoman(year);
+    const semLabel = semToRoman(semester);
 
     for (let i = 0; i < sectionsToExport.length; i++) {
         const currentSection = sectionsToExport[i];
         const analytics = sectionAnalyticsList[i];
 
-        const yearLabel = year === 2 ? 'II' : year === 3 ? 'III' : 'IV';
-        const semLabel = semester === 1 ? 'I' : 'II';
         const basePath = `2025-26 - AIML - ${yearLabel} - ${semLabel} - ${currentSection}`;
+        const theoryData = analytics.detailedReport?.theory || [];
+        const labData = analytics.detailedReport?.lab || [];
+        const theoryParamCount = 10;
+        const labParamCount = 8;
+        const maxParams = Math.max(theoryParamCount, labParamCount);
 
-        const renderItems = [
-            { type: 'Theory', title: `${basePath} - (Theory) FEED BACK - II`, data: analytics.detailedReport?.theory || [], numParams: 10 },
-            { type: 'Lab', title: `${basePath} - (Laboratory) FEED BACK - II`, data: analytics.detailedReport?.lab || [], numParams: 8 }
-        ];
+        // Total columns: SNO(1) + Type(2) + Subject(3) + maxParams + Feedback%(last)
+        const totalCols = 3 + maxParams + 1;
 
-        renderItems.forEach(item => {
-            if (item.data.length === 0) return;
+        const sheetName = sectionsToExport.length > 1 ? `Section ${currentSection}` : `Feedback Report`;
+        const sheet = workbook.addWorksheet(sheetName, {
+            pageSetup: { paperSize: 9, orientation: 'landscape' }
+        });
 
-            const sheetName = sectionsToExport.length > 1 ? `Sec ${currentSection} - ${item.type}` : `${item.type} Report`;
-            const sheet = workbook.addWorksheet(sheetName, {
-                pageSetup: { paperSize: 9, orientation: 'portrait' }
-            });
+        // --- Logo ---
+        const logoPath = path.join(__dirname, '..', 'logo.png');
+        if (fs.existsSync(logoPath)) {
+            const logoId = workbook.addImage({ filename: logoPath, extension: 'png' });
+            sheet.addImage(logoId, { tl: { col: 0, row: 0 }, br: { col: 5, row: 5 } });
+        }
 
-            const logoPath = path.join(__dirname, '..', 'logo.png');
-            const startDataRow = 7;
+        let currentRow = 7;
 
-            if (fs.existsSync(logoPath)) {
-                const logoId = workbook.addImage({
-                    filename: logoPath,
-                    extension: 'png',
-                });
-                sheet.addImage(logoId, {
-                    tl: { col: 0, row: 0 },
-                    br: { col: 4, row: 5 }
-                });
-            }
+        // --- Title ---
+        const lastColLetter = getColLetter(totalCols);
+        sheet.mergeCells(`A${currentRow}:${lastColLetter}${currentRow + 1}`);
+        const titleCell = sheet.getCell(`A${currentRow}`);
+        titleCell.value = 'Department of AIML\nFeedback Analysis Report';
+        titleCell.font = { name: 'Calibri', size: 18, bold: true, color: { argb: 'FF1e40af' } };
+        titleCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        currentRow += 3;
 
-            const titleRow = startDataRow;
-            sheet.mergeCells(`A${titleRow}:D${titleRow + 2}`);
-            const titleCell = sheet.getCell(`A${titleRow}`);
-            titleCell.value = 'Department of AIML\nFeedback Analysis Report';
-            titleCell.font = { name: 'Calibri', size: 20, bold: true, color: { argb: 'FF1e40af' } };
-            titleCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        // --- Info Row ---
+        sheet.mergeCells(`A${currentRow}:${lastColLetter}${currentRow}`);
+        const infoCell = sheet.getCell(`A${currentRow}`);
+        infoCell.value = `Academic Year: 2025-26 | Year: ${yearLabel} | Semester: ${semLabel} | Section: ${currentSection} | Generated: ${new Date().toLocaleDateString('en-IN')}`;
+        infoCell.font = { name: 'Calibri', size: 11, bold: true };
+        infoCell.alignment = { vertical: 'middle', horizontal: 'center' };
+        infoCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFe5e7eb' } };
+        sheet.getRow(currentRow).height = 25;
+        currentRow += 2;
 
-            const infoRow = titleRow + 4;
-            sheet.getRow(infoRow).height = 25;
-            sheet.mergeCells(`A${infoRow}:D${infoRow}`);
-            const infoCell = sheet.getCell(`A${infoRow}`);
-            infoCell.value = `Academic Year: ${year} | Semester: ${semester} | Section: ${currentSection} | Generated: ${new Date().toLocaleDateString('en-IN')}`;
-            infoCell.font = { name: 'Calibri', size: 12, bold: true };
-            infoCell.alignment = { vertical: 'middle', horizontal: 'center' };
-            infoCell.fill = {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'FFe5e7eb' }
-            };
+        // Helper to style cell borders
+        const thinBorder = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
 
-            let currentRow = infoRow + 2;
-
-            // Title Row
-            sheet.getRow(currentRow).height = 25;
-            const lastColIndex = 2 + item.numParams + 1;
-            const mergeCode = `A${currentRow}:${String.fromCharCode(64 + lastColIndex)}${currentRow}`;
-
-            sheet.mergeCells(mergeCode);
-            const titleHeader = sheet.getCell(`A${currentRow}`);
-            titleHeader.value = item.title;
-            titleHeader.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
-            titleHeader.alignment = { vertical: 'middle', horizontal: 'center' };
-            titleHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFe5e7eb' } };
-
+        // ===== THEORY SECTION =====
+        if (theoryData.length > 0) {
+            // Section Title
+            sheet.mergeCells(`A${currentRow}:${lastColLetter}${currentRow}`);
+            const thTitle = sheet.getCell(`A${currentRow}`);
+            thTitle.value = `${basePath} - (Theory) FEEDBACK`;
+            thTitle.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF1e40af' } };
+            thTitle.alignment = { vertical: 'middle', horizontal: 'center' };
+            thTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFdbeafe' } };
+            sheet.getRow(currentRow).height = 28;
             currentRow++;
 
-            // Headers
-            sheet.getRow(currentRow).height = 20;
-            const headers = ['S.No', item.type === 'Theory' ? 'SUBJECT NAME' : 'LAB SUBJECT NAME'];
-            for (let j = 1; j <= item.numParams; j++) headers.push(`P${j}`);
-            headers.push('FEEDBACK (%)');
+            // Header Row
+            const theoryHeaders = ['S.No', 'Type', 'SUBJECT NAME'];
+            for (let j = 0; j < theoryParamCount; j++) theoryHeaders.push(paramLabel(j));
+            theoryHeaders.push('FEEDBACK (%)');
 
-            headers.forEach((header, index) => {
+            sheet.getRow(currentRow).height = 22;
+            theoryHeaders.forEach((header, index) => {
                 const cell = sheet.getCell(currentRow, index + 1);
                 cell.value = header;
-                cell.font = { name: 'Calibri', size: 11, bold: true };
+                cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
                 cell.alignment = { vertical: 'middle', horizontal: 'center' };
-                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFd1d5db' } };
-                cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1e3a5f' } };
+                cell.border = thinBorder;
             });
-
             currentRow++;
 
             // Data Rows
-            item.data.forEach((row, index) => {
-                const rowObj = [index + 1, row.subjectName, ...row.params.slice(0, item.numParams), `${row.average}%`];
-                sheet.getRow(currentRow).values = rowObj;
+            theoryData.forEach((row, index) => {
+                const rowValues = [index + 1, 'Theory', row.subjectName];
+                for (let j = 0; j < theoryParamCount; j++) {
+                    rowValues.push(row.params[j] || '-');
+                }
+                rowValues.push(`${row.average}%`);
 
-                for (let col = 1; col <= headers.length; col++) {
+                sheet.getRow(currentRow).values = rowValues;
+                for (let col = 1; col <= theoryHeaders.length; col++) {
                     const cell = sheet.getCell(currentRow, col);
                     cell.font = { name: 'Calibri', size: 10 };
-                    cell.alignment = { vertical: 'middle', horizontal: col === 2 ? 'left' : 'center' };
-                    cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+                    cell.alignment = { vertical: 'middle', horizontal: col === 3 ? 'left' : 'center' };
+                    cell.border = thinBorder;
+                    if (index % 2 === 0) {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
+                    }
                 }
                 currentRow++;
             });
 
-            sheet.getColumn(1).width = 8;
-            sheet.getColumn(2).width = 40;
-            for (let j = 3; j <= 14; j++) sheet.getColumn(j).width = 8;
-        });
+            currentRow += 2; // spacing between theory and lab
+        }
+
+        // ===== LAB SECTION =====
+        if (labData.length > 0) {
+            // Section Title
+            sheet.mergeCells(`A${currentRow}:${lastColLetter}${currentRow}`);
+            const labTitle = sheet.getCell(`A${currentRow}`);
+            labTitle.value = `${basePath} - (Laboratory) FEEDBACK`;
+            labTitle.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF1e40af' } };
+            labTitle.alignment = { vertical: 'middle', horizontal: 'center' };
+            labTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFdbeafe' } };
+            sheet.getRow(currentRow).height = 28;
+            currentRow++;
+
+            // Header Row
+            const labHeaders = ['S.No', 'Type', 'LAB SUBJECT NAME'];
+            for (let j = 0; j < labParamCount; j++) labHeaders.push(paramLabel(j));
+            labHeaders.push('FEEDBACK (%)');
+
+            sheet.getRow(currentRow).height = 22;
+            labHeaders.forEach((header, index) => {
+                const cell = sheet.getCell(currentRow, index + 1);
+                cell.value = header;
+                cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1e3a5f' } };
+                cell.border = thinBorder;
+            });
+            currentRow++;
+
+            // Data Rows
+            labData.forEach((row, index) => {
+                const rowValues = [index + 1, 'Lab', row.subjectName];
+                for (let j = 0; j < labParamCount; j++) {
+                    rowValues.push(row.params[j] || '-');
+                }
+                rowValues.push(`${row.average}%`);
+
+                sheet.getRow(currentRow).values = rowValues;
+                for (let col = 1; col <= labHeaders.length; col++) {
+                    const cell = sheet.getCell(currentRow, col);
+                    cell.font = { name: 'Calibri', size: 10 };
+                    cell.alignment = { vertical: 'middle', horizontal: col === 3 ? 'left' : 'center' };
+                    cell.border = thinBorder;
+                    if (index % 2 === 0) {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
+                    }
+                }
+                currentRow++;
+            });
+
+            currentRow += 2;
+        }
+
+        // ===== QUESTIONS / PARAMETERS SECTION =====
+        const theoryQs = questionTexts.theory || [];
+        const labQs = questionTexts.lab || [];
+
+        if (theoryQs.length > 0 || labQs.length > 0) {
+            sheet.mergeCells(`A${currentRow}:${lastColLetter}${currentRow}`);
+            const qTitle = sheet.getCell(`A${currentRow}`);
+            qTitle.value = 'FEEDBACK PARAMETERS / QUESTIONS';
+            qTitle.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF1e40af' } };
+            qTitle.alignment = { vertical: 'middle', horizontal: 'center' };
+            qTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFdbeafe' } };
+            sheet.getRow(currentRow).height = 28;
+            currentRow += 2;
+
+            // Theory Questions
+            if (theoryQs.length > 0) {
+                sheet.mergeCells(`A${currentRow}:C${currentRow}`);
+                const thqHeader = sheet.getCell(`A${currentRow}`);
+                thqHeader.value = 'Theory Parameters:';
+                thqHeader.font = { name: 'Calibri', size: 11, bold: true };
+                currentRow++;
+
+                theoryQs.forEach((q, idx) => {
+                    const labelCell = sheet.getCell(currentRow, 1);
+                    labelCell.value = paramLabel(idx);
+                    labelCell.font = { name: 'Calibri', size: 10, bold: true };
+                    labelCell.alignment = { horizontal: 'center' };
+
+                    sheet.mergeCells(`B${currentRow}:${lastColLetter}${currentRow}`);
+                    const qCell = sheet.getCell(currentRow, 2);
+                    qCell.value = q;
+                    qCell.font = { name: 'Calibri', size: 10 };
+                    qCell.alignment = { wrapText: true };
+                    currentRow++;
+                });
+                currentRow++;
+            }
+
+            // Lab Questions
+            if (labQs.length > 0) {
+                sheet.mergeCells(`A${currentRow}:C${currentRow}`);
+                const labqHeader = sheet.getCell(`A${currentRow}`);
+                labqHeader.value = 'Laboratory Parameters:';
+                labqHeader.font = { name: 'Calibri', size: 11, bold: true };
+                currentRow++;
+
+                labQs.forEach((q, idx) => {
+                    const labelCell = sheet.getCell(currentRow, 1);
+                    labelCell.value = paramLabel(idx);
+                    labelCell.font = { name: 'Calibri', size: 10, bold: true };
+                    labelCell.alignment = { horizontal: 'center' };
+
+                    sheet.mergeCells(`B${currentRow}:${lastColLetter}${currentRow}`);
+                    const qCell = sheet.getCell(currentRow, 2);
+                    qCell.value = q;
+                    qCell.font = { name: 'Calibri', size: 10 };
+                    qCell.alignment = { wrapText: true };
+                    currentRow++;
+                });
+                currentRow++;
+            }
+        }
+
+        // ===== DEPARTMENT HEAD SIGNATURE =====
+        currentRow += 2;
+        const signCol = totalCols; // Last column
+        const signCell = sheet.getCell(currentRow, signCol);
+        signCell.value = 'Department Head';
+        signCell.font = { name: 'Calibri', size: 12, bold: true };
+        signCell.alignment = { horizontal: 'center' };
+
+        const sigLineCell = sheet.getCell(currentRow + 1, signCol);
+        sigLineCell.value = '(Signature)';
+        sigLineCell.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FF666666' } };
+        sigLineCell.alignment = { horizontal: 'center' };
+
+        // --- Column Widths ---
+        sheet.getColumn(1).width = 7;   // S.No
+        sheet.getColumn(2).width = 9;   // Type
+        sheet.getColumn(3).width = 40;  // Subject Name
+        for (let j = 4; j <= 3 + maxParams; j++) sheet.getColumn(j).width = 8;
+        sheet.getColumn(3 + maxParams + 1).width = 14; // Feedback %
+
     } // end section loop
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -561,6 +817,17 @@ const exportExcel = asyncHandler(async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
 });
+
+// Helper to get Excel column letter from 1-based index
+function getColLetter(colNum) {
+    let letter = '';
+    while (colNum > 0) {
+        const mod = (colNum - 1) % 26;
+        letter = String.fromCharCode(65 + mod) + letter;
+        colNum = Math.floor((colNum - 1) / 26);
+    }
+    return letter;
+}
 
 // @desc    Export analytics as Word
 // @route   GET /api/hod/export/word
@@ -582,134 +849,209 @@ const exportWord = asyncHandler(async (req, res) => {
     const { Table, TableCell, TableRow, WidthType, BorderStyle } = require('docx');
 
     const logoPath = path.join(__dirname, '..', 'logo.png');
-    let logoImage = null;
+    let logoBuffer = null;
     if (fs.existsSync(logoPath)) {
-        logoImage = new ImageRun({
-            data: fs.readFileSync(logoPath),
-            transformation: {
-                width: 600,
-                height: 150,
-            },
-        });
+        logoBuffer = fs.readFileSync(logoPath);
     }
 
     const wordSections = [];
+    const yearLabel = yearToRoman(year);
+    const semLabel = semToRoman(semester);
 
-    // Fetch all section analytics concurrently
-    const sectionAnalyticsList = await Promise.all(
-        sectionsToExport.map(currentSection => calculateAnalytics({ year, semester, section: currentSection }))
-    );
+    // Fetch question texts and all section analytics concurrently
+    const [questionTexts, sectionAnalyticsList] = await Promise.all([
+        fetchQuestionTexts(),
+        Promise.all(sectionsToExport.map(currentSection => calculateAnalytics({ year, semester, section: currentSection })))
+    ]);
 
     for (let i = 0; i < sectionsToExport.length; i++) {
         const currentSection = sectionsToExport[i];
         const analytics = sectionAnalyticsList[i];
+
+        const basePath = `2025-26 - AIML - ${yearLabel} - ${semLabel} - ${currentSection}`;
+        const theoryData = analytics.detailedReport?.theory || [];
+        const labData = analytics.detailedReport?.lab || [];
+        const theoryParamCount = 10;
+        const labParamCount = 8;
+
+        const sectionChildren = [];
+
+        // Logo (Full Width Banner)
+        if (logoBuffer) {
+            sectionChildren.push(new Paragraph({
+                children: [new ImageRun({
+                    data: logoBuffer,
+                    transformation: { width: 800, height: 200 },
+                })],
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 400 },
+            }));
+        }
+
+        // Title
+        sectionChildren.push(new Paragraph({
+            children: [new TextRun({ text: 'FEEDBACK SYSTEM', bold: true, size: 40 })],
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 200, before: 200 },
+        }));
+
+        // Info line
+        sectionChildren.push(new Paragraph({
+            children: [new TextRun({
+                text: `Academic Year: 2025-26 | Year: ${yearLabel} | Semester: ${semLabel} | Section: ${currentSection} | Generated: ${new Date().toLocaleDateString('en-IN')}`,
+                bold: true,
+                size: 20
+            })],
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 400 },
+        }));
+
+        // Build Word table helper
+        const buildWordTable = (title, dataList, isTheory) => {
+            if (!dataList || dataList.length === 0) return [];
+            const nodes = [];
+
+            // Table Title
+            nodes.push(new Paragraph({
+                children: [new TextRun({ text: title, bold: true, size: 24, color: '1e40af' })],
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 400, after: 200 },
+            }));
+
+            const numParams = isTheory ? theoryParamCount : labParamCount;
+            const headers = ['S.No', 'Type', isTheory ? 'SUBJECT NAME' : 'LAB SUBJECT NAME'];
+            for (let j = 0; j < numParams; j++) headers.push(paramLabel(j));
+            headers.push('FB (%)');
+
+            const tableRows = [
+                new TableRow({
+                    tableHeader: true,
+                    children: headers.map(h => new TableCell({
+                        children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, size: 16, color: 'FFFFFF' })], alignment: AlignmentType.CENTER })],
+                        shading: { fill: '1e3a5f' },
+                    }))
+                }),
+                ...dataList.map((row, index) => {
+                    const typeName = isTheory ? 'Theory' : 'Lab';
+                    const rowCells = [(index + 1).toString(), typeName, row.subjectName];
+                    for (let j = 0; j < numParams; j++) {
+                        rowCells.push(row.params[j] || '-');
+                    }
+                    rowCells.push(`${row.average}%`);
+                    return new TableRow({
+                        children: rowCells.map((val, cellIdx) => new TableCell({
+                            children: [new Paragraph({ children: [new TextRun({ text: String(val), size: 18 })], alignment: cellIdx === 2 ? AlignmentType.LEFT : AlignmentType.CENTER })],
+                            shading: index % 2 === 0 ? { fill: 'F9FAFB' } : undefined,
+                        }))
+                    });
+                })
+            ];
+
+            nodes.push(new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                rows: tableRows,
+            }));
+
+            return nodes;
+        };
+
+        // Theory table
+        const theoryNodes = buildWordTable(`${basePath} - (Theory) FEEDBACK`, theoryData, true);
+        if (theoryNodes.length > 0) sectionChildren.push(...theoryNodes);
+
+        // Lab table
+        if (theoryNodes.length > 0 && labData.length > 0) {
+            sectionChildren.push(new Paragraph({ children: [], spacing: { after: 200 } }));
+        }
+        const labNodes = buildWordTable(`${basePath} - (Laboratory) FEEDBACK`, labData, false);
+        if (labNodes.length > 0) sectionChildren.push(...labNodes);
+
+        // Questions section
+        const theoryQs = questionTexts.theory || [];
+        const labQs = questionTexts.lab || [];
+
+        if (theoryQs.length > 0 || labQs.length > 0) {
+            sectionChildren.push(new Paragraph({
+                children: [new TextRun({ text: 'FEEDBACK PARAMETERS / QUESTIONS', bold: true, size: 24, color: '1e40af' })],
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 400, after: 200 },
+            }));
+
+            if (theoryQs.length > 0) {
+                sectionChildren.push(new Paragraph({
+                    children: [new TextRun({ text: 'Theory Parameters:', bold: true, size: 20 })],
+                    spacing: { before: 200, after: 100 },
+                }));
+
+                theoryQs.forEach((q, idx) => {
+                    sectionChildren.push(new Paragraph({
+                        children: [
+                            new TextRun({ text: `${paramLabel(idx)} : `, bold: true, size: 18 }),
+                            new TextRun({ text: q, size: 18 }),
+                        ],
+                        spacing: { after: 60 },
+                    }));
+                });
+            }
+
+            if (labQs.length > 0) {
+                sectionChildren.push(new Paragraph({
+                    children: [new TextRun({ text: 'Laboratory Parameters:', bold: true, size: 20 })],
+                    spacing: { before: 200, after: 100 },
+                }));
+
+                labQs.forEach((q, idx) => {
+                    sectionChildren.push(new Paragraph({
+                        children: [
+                            new TextRun({ text: `${paramLabel(idx)} : `, bold: true, size: 18 }),
+                            new TextRun({ text: q, size: 18 }),
+                        ],
+                        spacing: { after: 60 },
+                    }));
+                });
+            }
+        }
+
+        // Department Head signature (right-aligned)
+        sectionChildren.push(new Paragraph({
+            children: [new TextRun({ text: 'Department Head', bold: true, size: 24 })],
+            alignment: AlignmentType.RIGHT,
+            spacing: { before: 800 },
+        }));
+        sectionChildren.push(new Paragraph({
+            children: [new TextRun({ text: '(Signature)', size: 18, italics: true, color: '666666' })],
+            alignment: AlignmentType.RIGHT,
+            spacing: { after: 200 },
+        }));
+
+        // Footer
+        sectionChildren.push(new Paragraph({
+            children: [
+                new TextRun({
+                    text: 'Confidential Document | AIML Department',
+                    size: 16,
+                    color: '666666',
+                }),
+            ],
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 400 },
+        }));
 
         wordSections.push({
             properties: {
                 page: {
                     margin: {
                         top: 0,
-                        right: 0,
-                        bottom: 720, // 0.5 inch bottom margin
-                        left: 0,
+                        right: 200,
+                        bottom: 720,
+                        left: 200,
                     },
+                    size: {
+                        orientation: 'landscape',
+                    }
                 },
             },
-            children: [
-                // Logo (Full Width Banner)
-                ...(logoImage ? [new Paragraph({
-                    children: [new ImageRun({
-                        data: fs.readFileSync(logoPath),
-                        transformation: {
-                            width: 800, // Full page width (A4 width is approx 595pt or 794px at 96dpi)
-                            height: 200, // Adjusted height
-                        },
-                    })],
-                    alignment: AlignmentType.CENTER,
-                    spacing: { after: 400 }, // Space after banner
-                })] : []),
-
-                // Title
-                new Paragraph({
-                    children: [new TextRun({ text: 'FEEDBACK SYSTEM', bold: true, size: 40 })],
-                    alignment: AlignmentType.CENTER,
-                    spacing: { after: 400, before: 200 },
-                }),
-
-                ...(() => {
-                    const documentElements = [];
-
-                    const yearLabel = year === 2 ? 'II' : year === 3 ? 'III' : 'IV';
-                    const semLabel = semester === 1 ? 'I' : 'II';
-                    const basePath = `2025-26 - AIML - ${yearLabel} - ${semLabel} - ${currentSection}`;
-
-                    const buildWordTable = (title, dataList, isTheory) => {
-                        if (!dataList || dataList.length === 0) return [];
-                        const nodes = [];
-
-                        // Table Title
-                        nodes.push(new Paragraph({
-                            children: [new TextRun({ text: title, bold: true, size: 28 })],
-                            alignment: AlignmentType.CENTER,
-                            spacing: { before: 400, after: 200 },
-                        }));
-
-                        const numParams = isTheory ? 10 : 8;
-                        const headers = ['S.No', isTheory ? 'SUBJECT NAME' : 'LAB SUBJECT NAME'];
-                        for (let i = 1; i <= numParams; i++) headers.push(`P${i}`);
-                        headers.push('FEEDBACK (%)');
-
-                        const tableRows = [
-                            new TableRow({
-                                tableHeader: true,
-                                children: headers.map(h => new TableCell({
-                                    children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, size: 16 })], alignment: AlignmentType.CENTER })],
-                                    shading: { fill: 'e5e7eb' },
-                                }))
-                            }),
-                            ...dataList.map((row, index) => {
-                                const rowCells = [(index + 1).toString(), row.subjectName, ...row.params.slice(0, numParams), `${row.average}%`];
-                                return new TableRow({
-                                    children: rowCells.map((val, cellIdx) => new TableCell({
-                                        children: [new Paragraph({ children: [new TextRun({ text: val, size: 18 })], alignment: cellIdx === 1 ? AlignmentType.LEFT : AlignmentType.CENTER })],
-                                    }))
-                                });
-                            })
-                        ];
-
-                        nodes.push(new Table({
-                            width: { size: 100, type: WidthType.PERCENTAGE },
-                            rows: tableRows,
-                        }));
-
-                        return nodes;
-                    };
-
-                    const theoryNodes = buildWordTable(`${basePath} - (Theory) FEED BACK - II`, analytics.detailedReport?.theory || [], true);
-                    const labNodes = buildWordTable(`${basePath} - (Laboratory) FEED BACK - II`, analytics.detailedReport?.lab || [], false);
-
-                    if (theoryNodes.length > 0) documentElements.push(...theoryNodes);
-                    if (theoryNodes.length > 0 && labNodes.length > 0) {
-                        documentElements.push(new Paragraph({ children: [new PageBreak()] }));
-                    }
-                    if (labNodes.length > 0) documentElements.push(...labNodes);
-
-                    return documentElements;
-                })(),
-
-                // Footer
-                new Paragraph({
-                    children: [
-                        new TextRun({
-                            text: 'Confidential Document | AIML Department',
-                            size: 16,
-                            color: '666666',
-                        }),
-                    ],
-                    alignment: AlignmentType.CENTER,
-                    spacing: { before: 800 },
-                }),
-            ],
+            children: sectionChildren,
         });
     } // end section loop
 
